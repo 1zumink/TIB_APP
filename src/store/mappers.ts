@@ -18,7 +18,9 @@ export const fromProfile = (r: any): Member => {
     phone: r.phone ?? '',
     website: r.website ?? '',
     handle: r.handle ?? '',
-    photoUrl: r.photo_url || undefined,
+    // A `blob:` handle only lives inside the tab that made it — rows written
+    // before portraits were uploaded still carry one. Read them as "no photo".
+    photoUrl: r.photo_url && !r.photo_url.startsWith('blob:') ? r.photo_url : undefined,
     signature: (r.signature as Member['signature']) || 'ilya',
   };
 };

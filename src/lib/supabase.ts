@@ -12,15 +12,29 @@ const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
 
+/**
+ * `expo export -p web` renders every route in Node to produce the static HTML.
+ * There is no `window` in that pass, and createClient() restores the session
+ * eagerly — which sends AsyncStorage's web build straight into localStorage.
+ * Nobody is signed in while prerendering, so hand it a store that says so.
+ */
+const isBrowser = typeof window !== 'undefined';
+
+const noopStorage = {
+  getItem: async () => null,
+  setItem: async () => {},
+  removeItem: async () => {},
+};
+
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url as string, anonKey as string, {
       global: {
         fetch: createAuthFetch(`${url!.replace(/\/$/, '')}/auth/v1`),
       },
       auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
+        storage: isBrowser ? AsyncStorage : noopStorage,
+        autoRefreshToken: isBrowser,
+        persistSession: isBrowser,
         detectSessionInUrl: false,
       },
     })
