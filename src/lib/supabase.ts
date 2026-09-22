@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createAuthFetch } from './authFetch';
 
 /**
  * Reads config from EXPO_PUBLIC_* env vars (see .env / .env.example).
@@ -13,6 +14,9 @@ export const isSupabaseConfigured = Boolean(url && anonKey);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url as string, anonKey as string, {
+      global: {
+        fetch: createAuthFetch(`${url!.replace(/\/$/, '')}/auth/v1`),
+      },
       auth: {
         storage: AsyncStorage,
         autoRefreshToken: true,

@@ -1,10 +1,11 @@
+import { MotionPressable as Pressable, MotionRow } from '@/components/motion';
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar, Button, IconButton, T, Tag } from '@/components/ui';
-import { Sheet } from '@/components/Sheet';
+import { Sheet, useLastValue } from '@/components/Sheet';
 import { Field } from '@/components/form';
 import { useStore } from '@/store/StoreContext';
 import { colors, radius, space } from '@/theme';
@@ -19,6 +20,7 @@ export default function WorkLog() {
   const { data, me, memberById, addLog, updateLog, removeLog } = useStore();
   const [form, setForm] = useState<LogEntry | 'new' | null>(null);
   const [exporting, setExporting] = useState(false);
+  const shownForm = useLastValue(form);
 
   const sorted = [...data.log].sort((a, b) => b.at - a.at);
 
@@ -64,7 +66,7 @@ export default function WorkLog() {
             <T variant="small" style={{ marginTop: 10 }}>Пусто. Жми + и запиши, что сделал.</T>
           </View>
         ) : (
-          sorted.map((l) => {
+          sorted.map((l, index) => {
             const author = memberById(l.authorId);
             const mine = l.authorId === me.id;
             const inner = (
@@ -83,20 +85,25 @@ export default function WorkLog() {
                 {mine ? <Ionicons name="create-outline" size={18} color={colors.textFaint} /> : null}
               </>
             );
-            return mine ? (
-              <Pressable key={l.id} style={styles.row} onPress={() => setForm(l)}>
-                {inner}
-              </Pressable>
-            ) : (
-              <View key={l.id} style={styles.row}>{inner}</View>
+            return (
+              <MotionRow key={l.id} index={index}>
+                {mine ? (
+                  <Pressable style={styles.row} onPress={() => setForm(l)}>
+                    {inner}
+                  </Pressable>
+                ) : (
+                  <View style={styles.row}>{inner}</View>
+                )}
+              </MotionRow>
             );
           })
         )}
       </ScrollView>
 
       <LogFormSheet
-        key={form === 'new' ? 'new' : form?.id}
-        target={form}
+        key={shownForm === 'new' ? 'new' : shownForm?.id}
+        visible={form !== null}
+        target={shownForm}
         authorName={me.name}
         onClose={() => setForm(null)}
         onSubmit={(p, id) => {
@@ -112,12 +119,14 @@ export default function WorkLog() {
 
 function LogFormSheet({
   target,
+  visible,
   onClose,
   onSubmit,
   onDelete,
   authorName,
 }: {
   target: LogEntry | 'new' | null;
+  visible: boolean;
   onClose: () => void;
   onSubmit: (p: { description: string; project?: string }, id?: string) => void;
   onDelete: (id: string) => void;
@@ -128,7 +137,7 @@ function LogFormSheet({
   const [project, setProject] = useState(existing?.project ?? '');
 
   return (
-    <Sheet visible={target !== null} onClose={onClose} title={existing ? 'Запись' : 'Что сделал?'}>
+    <Sheet visible={visible} onClose={onClose} title={existing ? 'Запись' : 'Что сделал?'}>
       {!existing ? (
         <View style={styles.autoRow}>
           <Ionicons name="person-circle" size={18} color={colors.red} />

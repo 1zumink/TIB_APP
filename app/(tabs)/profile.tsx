@@ -1,5 +1,14 @@
+import {
+  AnimatedCount,
+  MotionPressable as Pressable,
+  MotionView,
+  PulseDot,
+  duration,
+  useSelectProgress,
+} from '@/components/motion';
 import React from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated, { interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
@@ -7,7 +16,7 @@ import { Avatar, T } from '@/components/ui';
 import { TibCard3D } from '@/components/TibCard3D';
 import { useStore } from '@/store/StoreContext';
 import { confirm } from '@/lib/confirm';
-import { colors, radius, space } from '@/theme';
+import { colors, radius, space, type } from '@/theme';
 
 export default function Profile() {
   const router = useRouter();
@@ -30,7 +39,7 @@ export default function Profile() {
       </View>
 
       {/* 3D card */}
-      <View style={styles.cardStage}>
+      <MotionView style={styles.cardStage}>
         <TibCard3D member={me} />
         <View style={styles.hint}>
           <Ionicons name="finger-print" size={14} color={colors.textFaint} />
@@ -38,25 +47,25 @@ export default function Profile() {
             Крути карточку пальцем
           </T>
         </View>
-      </View>
+      </MotionView>
 
       {/* Stats */}
-      <View style={styles.stats}>
+      <MotionView delay={40} style={styles.stats}>
         <Pressable style={styles.stat} onPress={() => router.push('/deadlines')}>
-          <T variant="h1">{myDeadlines}</T>
+          <AnimatedCount value={myDeadlines} style={type.h1} />
           <T variant="small">дедлайнов</T>
         </Pressable>
         <View style={styles.statDivider} />
         <Pressable style={styles.stat} onPress={() => router.push('/tasks')}>
-          <T variant="h1">{myTasks}</T>
+          <AnimatedCount value={myTasks} style={type.h1} />
           <T variant="small">тасок</T>
         </Pressable>
         <View style={styles.statDivider} />
         <Pressable style={styles.stat} onPress={() => router.push('/worklog')}>
-          <T variant="h1">{myLogs}</T>
+          <AnimatedCount value={myLogs} style={type.h1} />
           <T variant="small">в логе</T>
         </Pressable>
-      </View>
+      </MotionView>
 
       {/* Nav links */}
       <View style={{ gap: space.md, marginTop: space.xl }}>
@@ -69,32 +78,25 @@ export default function Profile() {
         {mode === 'supabase' ? 'Команда' : 'Кто ты сейчас (демо-режим)'}
       </T>
       <View style={styles.memberGrid}>
-        {data.members.map((m) => {
-          const active = m.id === me.id;
-          const chip = (
-            <View
-              style={[styles.memberChip, active ? { borderColor: colors.red, backgroundColor: colors.redSoft } : null]}
-            >
-              <Avatar member={m} size={26} />
-              <T variant="body" style={{ fontWeight: '700', marginLeft: 8 }} color={active ? colors.red : colors.text}>
-                {m.name}
-              </T>
-            </View>
-          );
+        {data.members.map((m) => (
           // In demo mode you can switch identity; in cloud mode it's just the roster.
-          return mode === 'local' ? (
-            <Pressable key={m.id} onPress={() => setCurrentUser(m.id)}>
-              {chip}
-            </Pressable>
-          ) : (
-            <View key={m.id}>{chip}</View>
-          );
-        })}
+          <MemberChip
+            key={m.id}
+            member={m}
+            active={m.id === me.id}
+            onPress={mode === 'local' ? () => setCurrentUser(m.id) : undefined}
+          />
+        ))}
       </View>
 
       {/* Connection status */}
       <View style={styles.statusRow}>
-        <View style={[styles.dot, { backgroundColor: mode === 'supabase' ? '#12B76A' : colors.textFaint }]} />
+        {/* A live connection gets a heartbeat; an offline one stays still. */}
+        {mode === 'supabase' ? (
+          <PulseDot size={8} color="#12B76A" />
+        ) : (
+          <View style={[styles.dot, { backgroundColor: colors.textFaint }]} />
+        )}
         <T variant="small">
           {mode === 'supabase' ? 'Синхронизация с сервером включена' : 'Локальный режим (без синхронизации)'}
         </T>
@@ -103,6 +105,7 @@ export default function Profile() {
       {mode === 'supabase' ? (
         <Pressable
           style={styles.reset}
+          haptic="tap"
           onPress={() => confirm('Выйти из аккаунта?', '', () => signOut?.(), 'Выйти')}
         >
           <Ionicons name="log-out-outline" size={18} color={colors.textDim} />
@@ -113,6 +116,7 @@ export default function Profile() {
       ) : (
         <Pressable
           style={styles.reset}
+          haptic="tap"
           onPress={() => confirm('Сбросить данные?', 'Вернём демо-контент и удалим все изменения.', resetAll, 'Сбросить')}
         >
           <Ionicons name="refresh" size={16} color={colors.textDim} />
@@ -122,6 +126,44 @@ export default function Profile() {
         </Pressable>
       )}
     </Screen>
+  );
+}
+
+/**
+ * Roster chip. Switching identity recolours border, fill and name together —
+ * three properties on one 200ms curve so it reads as one object changing,
+ * not three things re-rendering.
+ */
+function MemberChip({
+  member,
+  active,
+  onPress,
+}: {
+  member: Parameters<typeof Avatar>[0]['member'];
+  active: boolean;
+  onPress?: () => void;
+}) {
+  const p = useSelectProgress(active, duration.chip);
+  const box = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(p.value, [0, 1], [colors.stroke, colors.red]),
+    backgroundColor: interpolateColor(p.value, [0, 1], [colors.surface, colors.redSoft]),
+  }));
+  const name = useAnimatedStyle(() => ({
+    color: interpolateColor(p.value, [0, 1], [colors.text, colors.red]),
+  }));
+  const chip = (
+    <Animated.View style={[styles.memberChip, box]}>
+      <Avatar member={member} size={26} />
+      <Animated.Text style={[{ fontSize: 15, lineHeight: 21, fontWeight: '700', marginLeft: 8 }, name]}>
+        {member?.name}
+      </Animated.Text>
+    </Animated.View>
+  );
+  if (!onPress) return chip;
+  return (
+    <Pressable onPress={onPress} haptic={active ? false : 'select'}>
+      {chip}
+    </Pressable>
   );
 }
 

@@ -1,8 +1,14 @@
-import React from 'react';
+import {
+  AnimatedSegment,
+  HapticKind,
+  MotionPressable as Pressable,
+  MotionView,
+  duration,
+  timing,
+} from './motion';
+import React, { useEffect } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
-  PressableProps,
   StyleProp,
   StyleSheet,
   Text,
@@ -10,8 +16,8 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { colors, radius, shadow, space, type } from '../theme';
 import { Member } from '../types';
 
@@ -66,28 +72,30 @@ export function Pill({
   icon?: keyof typeof Ionicons.glyphMap;
   tone?: 'default' | 'red' | 'outline';
 }) {
-  const bg =
-    tone === 'red'
-      ? colors.red
-      : active
-      ? colors.white
-      : tone === 'outline'
-      ? 'transparent'
-      : colors.surfaceHi;
-  const fg = tone === 'red' ? colors.white : active ? colors.black : colors.text;
-  const border = tone === 'outline' && !active ? colors.stroke : 'transparent';
+  if (tone === 'red') {
+    return (
+      <Pressable onPress={onPress} haptic="tap" style={[styles.pill, { backgroundColor: colors.red }]}>
+        {icon ? <Ionicons name={icon} size={14} color={colors.white} style={{ marginRight: 6 }} /> : null}
+        <Text style={[styles.pillText, { color: colors.white }]}>{label}</Text>
+      </Pressable>
+    );
+  }
+  // default / outline: background + text smoothly cross-fade on selection
   return (
-    <Pressable
+    <AnimatedSegment
+      label={label}
+      active={!!active}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.pill,
-        { backgroundColor: bg, borderColor: border, borderWidth: border === 'transparent' ? 0 : 1 },
-        pressed && onPress ? { opacity: 0.7 } : null,
-      ]}
-    >
-      {icon ? <Ionicons name={icon} size={14} color={fg} style={{ marginRight: 6 }} /> : null}
-      <Text style={[styles.pillText, { color: fg }]}>{label}</Text>
-    </Pressable>
+      activeBg={colors.white}
+      inactiveBg={tone === 'outline' ? 'transparent' : colors.surfaceHi}
+      activeFg={colors.black}
+      inactiveFg={colors.text}
+      leading={
+        icon ? (
+          <Ionicons name={icon} size={14} color={active ? colors.black : colors.text} style={{ marginRight: 6 }} />
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -100,6 +108,7 @@ export function Button({
   loading,
   disabled,
   style,
+  haptic = 'tap',
 }: {
   title: string;
   onPress?: () => void;
@@ -108,6 +117,7 @@ export function Button({
   loading?: boolean;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  haptic?: HapticKind;
 }) {
   const map = {
     primary: { bg: colors.white, fg: colors.black },
@@ -116,28 +126,49 @@ export function Button({
     ghost: { bg: 'transparent', fg: colors.text },
   } as const;
   const c = map[tone];
+  const off = disabled || loading;
+
+  // Disabling fades rather than cuts — the button stays the same object.
+  const dim = useSharedValue(disabled ? 0.4 : 1);
+  useEffect(() => {
+    dim.value = timing(disabled ? 0.4 : 1, duration.chip);
+  }, [disabled, dim]);
+  const dimStyle = useAnimatedStyle(() => ({ opacity: dim.value }));
+
+  // Label and spinner swap in place, so the button never changes size mid-action.
+  const busy = useSharedValue(loading ? 1 : 0);
+  useEffect(() => {
+    busy.value = timing(loading ? 1 : 0, duration.chip);
+  }, [loading, busy]);
+  const labelStyle = useAnimatedStyle(() => ({
+    opacity: 1 - busy.value,
+    transform: [{ scale: 1 - busy.value * 0.06 }],
+  }));
+  const spinnerStyle = useAnimatedStyle(() => ({
+    opacity: busy.value,
+    transform: [{ scale: 0.9 + busy.value * 0.1 }],
+  }));
+
   return (
     <Pressable
-      disabled={disabled || loading}
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        onPress?.();
-      }}
-      style={({ pressed }) => [
+      disabled={off}
+      haptic={off ? false : haptic}
+      onPress={onPress}
+      style={[
         styles.button,
-        { backgroundColor: c.bg, opacity: disabled ? 0.4 : pressed ? 0.85 : 1 },
+        { backgroundColor: c.bg },
         tone === 'ghost' ? { borderWidth: 1, borderColor: colors.stroke } : null,
         style,
-      ]}
+        dimStyle,
+      ] as any}
     >
-      {loading ? (
+      <Animated.View style={[styles.buttonRow, labelStyle]}>
+        {icon ? <Ionicons name={icon} size={18} color={c.fg} style={{ marginRight: 8 }} /> : null}
+        <Text style={[styles.buttonText, { color: c.fg }]}>{title}</Text>
+      </Animated.View>
+      <Animated.View style={[StyleSheet.absoluteFill, styles.buttonRow, spinnerStyle]} pointerEvents="none">
         <ActivityIndicator color={c.fg} />
-      ) : (
-        <>
-          {icon ? <Ionicons name={icon} size={18} color={c.fg} style={{ marginRight: 8 }} /> : null}
-          <Text style={[styles.buttonText, { color: c.fg }]}>{title}</Text>
-        </>
-      )}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -148,23 +179,25 @@ export function IconButton({
   tone = 'surface',
   size = 44,
   color,
+  haptic = 'select',
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   onPress?: () => void;
   tone?: 'surface' | 'red' | 'white' | 'ghost';
   size?: number;
   color?: string;
+  haptic?: HapticKind;
 }) {
   const bg =
     tone === 'red' ? colors.red : tone === 'white' ? colors.white : tone === 'ghost' ? 'transparent' : colors.surfaceHi;
   const fg = color || (tone === 'white' ? colors.black : colors.text);
   return (
     <Pressable
-      onPress={() => {
-        Haptics.selectionAsync().catch(() => {});
-        onPress?.();
-      }}
-      style={({ pressed }) => [
+      onPress={onPress}
+      haptic={haptic}
+      // small round targets need a deeper press to read as one
+      scaleTo={0.88}
+      style={[
         {
           width: size,
           height: size,
@@ -172,7 +205,6 @@ export function IconButton({
           backgroundColor: bg,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: pressed ? 0.7 : 1,
         },
         tone === 'ghost' ? { borderWidth: 1, borderColor: colors.stroke } : null,
       ]}
@@ -248,7 +280,7 @@ export function SectionHeader({
     <View style={styles.sectionHeader}>
       <T variant="h2">{title}</T>
       {actionLabel ? (
-        <Pressable onPress={onAction} hitSlop={10}>
+        <Pressable onPress={onAction} hitSlop={10} haptic="select" scaleTo={0.94}>
           <Text style={{ color: colors.red, fontWeight: '700', fontSize: 14 }}>{actionLabel}</Text>
         </Pressable>
       ) : null}
@@ -259,12 +291,12 @@ export function SectionHeader({
 /* ---------- Empty state ---------- */
 export function Empty({ icon = 'sparkles-outline', text }: { icon?: keyof typeof Ionicons.glyphMap; text: string }) {
   return (
-    <View style={styles.empty}>
+    <MotionView style={styles.empty}>
       <Ionicons name={icon} size={30} color={colors.textFaint} />
       <T variant="small" style={{ marginTop: 10, textAlign: 'center', maxWidth: 240 }}>
         {text}
       </T>
-    </View>
+    </MotionView>
   );
 }
 
@@ -298,6 +330,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 22,
   },
+  buttonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   buttonText: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
   sectionHeader: {
     flexDirection: 'row',

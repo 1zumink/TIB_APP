@@ -1,9 +1,23 @@
-import React, { useState } from 'react';
 import {
-  ActivityIndicator,
+  AnimatedSegment,
+  MotionPressable as Pressable,
+  MotionView,
+  Shake,
+  duration,
+  fadeIn,
+  fadeOut,
+  haptics,
+  timing,
+} from './motion';
+import React, { useEffect, useState } from 'react';
+import Animated, {
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
+import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -26,6 +40,12 @@ export function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
+  // Failing a login is rare and worth being expressive about: the message
+  // shakes once and the phone taps back, so it registers before you re-read it.
+  useEffect(() => {
+    if (error) haptics.error();
+  }, [error]);
+
   // Supabase auth needs an email under the hood — we build a synthetic one from the login.
   const loginToEmail = (l: string) => `${l.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')}@tib.app`;
   const cleanLogin = login.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
@@ -36,6 +56,7 @@ export function AuthScreen() {
     (mode === 'in' || name.trim().length > 0);
 
   const submit = async () => {
+    if (!valid || loading) return;
     setError(null);
     setInfo(null);
     setLoading(true);
@@ -48,6 +69,8 @@ export function AuthScreen() {
         const res = await signUp?.(email, password, name.trim());
         if (res?.error) setError(translate(res.error));
       }
+    } catch (error) {
+      setError(translate(error instanceof Error ? error.message : 'Не удалось выполнить вход. Попробуйте ещё раз.'));
     } finally {
       setLoading(false);
     }
@@ -77,9 +100,11 @@ export function AuthScreen() {
         <T variant="display" style={{ fontSize: 44 }}>
           TIB
         </T>
-        <T variant="body" color={colors.textDim} style={{ marginTop: 4, marginBottom: space.xxl }}>
-          {mode === 'in' ? 'С возвращением. Погнали продвигаться.' : 'Заводи аккаунт и подключайся к команде.'}
-        </T>
+        <Animated.View key={mode} entering={fadeIn}>
+          <T variant="body" color={colors.textDim} style={{ marginTop: 4, marginBottom: space.xxl }}>
+            {mode === 'in' ? 'С возвращением. Погнали продвигаться.' : 'Заводи аккаунт и подключайся к команде.'}
+          </T>
+        </Animated.View>
 
         {/* tabs */}
         <View style={styles.tabs}>
@@ -88,7 +113,9 @@ export function AuthScreen() {
         </View>
 
         {mode === 'up' ? (
-          <Input label="Имя" value={name} onChangeText={setName} placeholder="Как тебя показывать" autoCapitalize="words" />
+          <Animated.View entering={fadeIn} exiting={fadeOut}>
+            <Input label="Имя" value={name} onChangeText={setName} placeholder="Как тебя показывать" autoCapitalize="words" />
+          </Animated.View>
         ) : null}
         <Input
           label="Логин"
@@ -108,11 +135,13 @@ export function AuthScreen() {
         />
 
         {error ? (
-          <View style={styles.error}>
-            <T variant="small" color={colors.red} style={{ fontWeight: '700' }}>
-              {error}
-            </T>
-          </View>
+          <Shake trigger={error}>
+            <MotionView style={styles.error}>
+              <T variant="small" color={colors.red} style={{ fontWeight: '700' }}>
+                {error}
+              </T>
+            </MotionView>
+          </Shake>
         ) : null}
         {info ? (
           <View style={styles.info}>
@@ -122,18 +151,23 @@ export function AuthScreen() {
           </View>
         ) : null}
 
+        {/* The button owns its own busy state — label and spinner swap in
+            place, so the layout never jumps mid-submit. */}
         <Button
-          title={loading ? '' : mode === 'in' ? 'Войти' : 'Создать аккаунт'}
+          title={mode === 'in' ? 'Войти' : 'Создать аккаунт'}
           tone="red"
-          disabled={!valid || loading}
+          loading={loading}
+          disabled={!valid}
           onPress={submit}
           style={{ marginTop: space.md }}
         />
-        {loading ? (
-          <ActivityIndicator color={colors.white} style={{ marginTop: -44, marginBottom: 20 }} />
-        ) : null}
 
-        <Pressable onPress={() => setMode(mode === 'in' ? 'up' : 'in')} style={{ marginTop: space.xl, alignItems: 'center' }}>
+        <Pressable
+          onPress={() => setMode(mode === 'in' ? 'up' : 'in')}
+          haptic="select"
+          scaleTo={0.97}
+          style={{ marginTop: space.xl, alignItems: 'center' }}
+        >
           <T variant="small">
             {mode === 'in' ? 'Нет аккаунта? ' : 'Уже есть аккаунт? '}
             <T variant="small" color={colors.red} style={{ fontWeight: '800' }}>
@@ -148,27 +182,49 @@ export function AuthScreen() {
 
 function Tab({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.tab, active ? { backgroundColor: colors.white } : null]}>
-      <T variant="body" color={active ? colors.black : colors.textDim} style={{ fontWeight: '800' }}>
-        {label}
-      </T>
-    </Pressable>
+    <AnimatedSegment
+      label={label}
+      active={active}
+      onPress={onPress}
+      activeBg={colors.white}
+      inactiveBg="transparent"
+      activeFg={colors.black}
+      inactiveFg={colors.textDim}
+      textStyle={{ fontSize: 15, fontWeight: '800' }}
+      style={styles.tab}
+    />
   );
 }
 
+const AnimatedInput = Animated.createAnimatedComponent(TextInput);
+
+/** Same focus treatment as the in-app fields, so the app never changes its mind. */
 function Input({
   label,
   ...props
 }: { label: string } & React.ComponentProps<typeof TextInput>) {
+  const focus = useSharedValue(0);
+  const border = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(focus.value, [0, 1], [colors.stroke, colors.red]),
+    backgroundColor: interpolateColor(focus.value, [0, 1], [colors.surface, colors.bgElevated]),
+  }));
   return (
     <View style={{ marginBottom: space.lg }}>
       <T variant="label" style={{ marginBottom: 8 }}>
         {label}
       </T>
-      <TextInput
+      <AnimatedInput
         {...props}
         placeholderTextColor={colors.textFaint}
-        style={styles.input}
+        onFocus={(e) => {
+          focus.value = timing(1, duration.chip);
+          props.onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          focus.value = timing(0, duration.chip);
+          props.onBlur?.(e);
+        }}
+        style={[styles.input, border]}
       />
     </View>
   );
@@ -176,6 +232,8 @@ function Input({
 
 function translate(msg: string): string {
   const m = msg.toLowerCase();
+  if (m.includes('timed out') || m.includes('timeout'))
+    return 'Сервер не ответил вовремя. Проверьте интернет или смените сеть и попробуйте ещё раз.';
   if (m.includes('invalid login')) return 'Неверный логин или пароль';
   if (m.includes('already registered') || m.includes('already been registered')) return 'Такой логин уже занят';
   if (m.includes('password should be')) return 'Пароль слишком короткий (минимум 6 символов)';

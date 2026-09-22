@@ -1,9 +1,20 @@
+import {
+  AnimatedToggle,
+  DimView,
+  MotionPressable as Pressable,
+  MotionRow,
+  PulseDot,
+  fadeIn,
+  fadeOut,
+  haptics,
+} from '@/components/motion';
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
 import { Avatar, Button, IconButton, Pill, T, Tag } from '@/components/ui';
-import { Sheet } from '@/components/Sheet';
+import { Sheet, useLastValue } from '@/components/Sheet';
 import { DateField, Field } from '@/components/form';
 import { useStore } from '@/store/StoreContext';
 import { colors, radius, space } from '@/theme';
@@ -18,6 +29,8 @@ export default function Tasks() {
   const [filter, setFilter] = useState<Filter>('open');
   const [form, setForm] = useState<Task | 'new' | null>(null);
   const [detail, setDetail] = useState<Task | null>(null);
+  // The sheet keeps rendering the form it was opened with while it slides away.
+  const shownForm = useLastValue(form);
 
   const list = useMemo(() => {
     let arr = [...data.tasks];
@@ -44,83 +57,107 @@ export default function Tasks() {
         <Pill label="Готово" active={filter === 'done'} onPress={() => setFilter('done')} />
       </View>
 
+      {/* No wrapper keyed on `filter`: remounting the list would replace every
+          row's exit with a cut. Per-row enter/exit/layout lets a filter change
+          read as rows leaving and arriving. */}
       {list.length === 0 ? (
-        <View style={{ paddingTop: 60, alignItems: 'center' }}>
+        <Animated.View style={{ paddingTop: 60, alignItems: 'center' }} entering={fadeIn} exiting={fadeOut}>
           <Ionicons name="checkbox-outline" size={34} color={colors.textFaint} />
           <T variant="small" style={{ marginTop: 10 }}>
             Нет тасок в этом фильтре
           </T>
-        </View>
+        </Animated.View>
       ) : (
-        list.map((t) => {
+        list.map((t, index) => {
           const assignee = t.assigneeId ? memberById(t.assigneeId) : undefined;
           const mine = t.assigneeId === me.id;
           const done = t.status === 'done';
           return (
-            <Pressable key={t.id} onPress={() => setDetail(t)}>
-              <View style={[styles.card, done ? { opacity: 0.55 } : null]}>
-                <View style={styles.cardTop}>
-                  <View style={{ flex: 1 }}>
-                    <T variant="title" style={done ? { textDecorationLine: 'line-through' } : null}>
-                      {t.title}
-                    </T>
-                    <T variant="small" numberOfLines={2} style={{ marginTop: 6 }}>
-                      {t.description}
-                    </T>
+            <MotionRow key={t.id} index={index}>
+              <Pressable onPress={() => setDetail(t)}>
+                <DimView dim={done ? 0.55 : 1} style={styles.card}>
+                  <View style={styles.cardTop}>
+                    <View style={{ flex: 1 }}>
+                      <T variant="title" style={done ? { textDecorationLine: 'line-through' } : null}>
+                        {t.title}
+                      </T>
+                      <T variant="small" numberOfLines={2} style={{ marginTop: 6 }}>
+                        {t.description}
+                      </T>
+                    </View>
+                    {t.date ? (
+                      <View style={styles.datePill}>
+                        <T variant="small" color={colors.red} style={{ fontWeight: '800' }}>
+                          {countdown(t.date).text}
+                        </T>
+                      </View>
+                    ) : null}
                   </View>
-                  {t.date ? (
-                    <View style={styles.datePill}>
-                      <T variant="small" color={colors.red} style={{ fontWeight: '800' }}>
-                        {countdown(t.date).text}
-                      </T>
-                    </View>
-                  ) : null}
-                </View>
 
-                <View style={styles.cardBottom}>
-                  {done ? (
-                    <Tag label={`Сделал ${assignee?.name ?? ''}`} color={colors.textFaint} />
-                  ) : t.status === 'claimed' && assignee ? (
-                    <View style={styles.assigneeRow}>
-                      <Avatar member={assignee} size={22} />
-                      <T variant="small" style={{ marginLeft: 6 }}>
-                        Делает {assignee.name}
-                        {mine ? ' (ты)' : ''}
-                      </T>
-                    </View>
-                  ) : (
-                    <View style={styles.freeRow}>
-                      <View style={styles.pulse} />
-                      <T variant="small" color={colors.red} style={{ fontWeight: '700' }}>
-                        Свободна
-                      </T>
-                    </View>
-                  )}
+                  <View style={styles.cardBottom}>
+                    {/* Status text and action swap by key, so claiming a task
+                        cross-fades in place instead of blinking to new copy. */}
+                    <Animated.View key={`s-${t.status}`} entering={fadeIn}>
+                      {done ? (
+                        <Tag label={`Сделал ${assignee?.name ?? ''}`} color={colors.textFaint} />
+                      ) : t.status === 'claimed' && assignee ? (
+                        <View style={styles.assigneeRow}>
+                          <Avatar member={assignee} size={22} />
+                          <T variant="small" style={{ marginLeft: 6 }}>
+                            Делает {assignee.name}
+                            {mine ? ' (ты)' : ''}
+                          </T>
+                        </View>
+                      ) : (
+                        <View style={styles.freeRow}>
+                          {/* an unclaimed task is the one thing on this screen
+                              asking to be picked up — so it breathes */}
+                          <PulseDot size={8} />
+                          <T variant="small" color={colors.red} style={{ fontWeight: '700' }}>
+                            Свободна
+                          </T>
+                        </View>
+                      )}
+                    </Animated.View>
 
-                  {t.status === 'open' ? (
-                    <Pressable style={styles.claimBtn} onPress={() => claimTask(t.id)}>
-                      <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
-                        Беру на себя
-                      </T>
-                    </Pressable>
-                  ) : t.status === 'claimed' && mine ? (
-                    <Pressable style={[styles.claimBtn, { backgroundColor: colors.surfaceHi }]} onPress={() => completeTask(t.id)}>
-                      <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
-                        Готово ✓
-                      </T>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
-            </Pressable>
+                    <Animated.View key={`a-${t.status}`} entering={fadeIn}>
+                      {t.status === 'open' ? (
+                        <Pressable
+                          style={styles.claimBtn}
+                          haptic="press"
+                          onPress={() => claimTask(t.id)}
+                        >
+                          <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
+                            Беру на себя
+                          </T>
+                        </Pressable>
+                      ) : t.status === 'claimed' && mine ? (
+                        <Pressable
+                          style={[styles.claimBtn, { backgroundColor: colors.surfaceHi }]}
+                          onPress={() => {
+                            haptics.success();
+                            completeTask(t.id);
+                          }}
+                        >
+                          <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
+                            Готово ✓
+                          </T>
+                        </Pressable>
+                      ) : null}
+                    </Animated.View>
+                  </View>
+                </DimView>
+              </Pressable>
+            </MotionRow>
           );
         })
       )}
 
       {/* Add sheet */}
       <TaskFormSheet
-        key={form === 'new' ? 'new' : form?.id}
-        target={form}
+        key={shownForm === 'new' ? 'new' : shownForm?.id}
+        visible={form !== null}
+        target={shownForm}
         onClose={() => setForm(null)}
         onSubmit={(p, id) => {
           if (id) updateTask(id, p);
@@ -152,10 +189,12 @@ export default function Tasks() {
 
 function TaskFormSheet({
   target,
+  visible,
   onClose,
   onSubmit,
 }: {
   target: Task | 'new' | null;
+  visible: boolean;
   onClose: () => void;
   onSubmit: (p: { title: string; description: string; date?: string }, id?: string) => void;
 }) {
@@ -166,18 +205,18 @@ function TaskFormSheet({
   const [withDate, setWithDate] = useState(Boolean(existing?.date));
 
   return (
-    <Sheet visible={target !== null} onClose={onClose} title={existing ? 'Таска' : 'Новая таска'}>
+    <Sheet visible={visible} onClose={onClose} title={existing ? 'Таска' : 'Новая таска'}>
       <Field label="Название" value={title} onChangeText={setTitle} placeholder="Что нужно сделать" autoFocus={!existing} />
       <Field label="Описание" value={desc} onChangeText={setDesc} placeholder="Детали, ссылки, контекст" multiline />
-      <View style={{ marginBottom: space.lg }}>
-        <Pressable style={styles.toggleRow} onPress={() => setWithDate((v) => !v)}>
-          <T variant="body" style={{ fontWeight: '700' }}>Есть дедлайн</T>
-          <View style={[styles.switch, withDate ? { backgroundColor: colors.red } : null]}>
-            <View style={[styles.knob, withDate ? { alignSelf: 'flex-end' } : null]} />
-          </View>
-        </Pressable>
+      <View style={[styles.toggleRow, { marginBottom: space.lg }]}>
+        <T variant="body" style={{ fontWeight: '700' }}>Есть дедлайн</T>
+        <AnimatedToggle value={withDate} onToggle={() => setWithDate((v) => !v)} />
       </View>
-      {withDate ? <DateField label="Дедлайн" value={date} onChange={setDate} /> : null}
+      {withDate ? (
+        <Animated.View entering={fadeIn} exiting={fadeOut}>
+          <DateField label="Дедлайн" value={date} onChange={setDate} />
+        </Animated.View>
+      ) : null}
       <Button
         title={existing ? 'Сохранить' : 'Добавить таску'}
         tone="red"
@@ -207,32 +246,35 @@ function TaskDetailSheet({
   onComplete: () => void;
   onDelete: () => void;
 }) {
-  if (!task) return <Sheet visible={false} onClose={onClose} title="" >{null}</Sheet>;
-  const mine = task.assigneeId === meId;
+  // Keep the last task around through the closing animation — dropping it the
+  // instant it's cleared would empty the sheet while it's still on screen.
+  const shown = useLastValue(task);
+  if (!shown) return <Sheet visible={false} onClose={onClose} title="Таска">{null}</Sheet>;
+  const mine = shown.assigneeId === meId;
   return (
     <Sheet visible={!!task} onClose={onClose} title="Таска">
-      <T variant="h1">{task.title}</T>
+      <T variant="h1">{shown.title}</T>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        {task.date ? <Tag label={`Дедлайн ${fmtShort(task.date)}`} color={colors.red} /> : null}
+        {shown.date ? <Tag label={`Дедлайн ${fmtShort(shown.date)}`} color={colors.red} /> : null}
         <Tag label={`Автор: ${authorName ?? '—'}`} color={colors.textDim} />
-        {task.status === 'claimed' && assigneeName ? <Tag label={`Делает ${assigneeName}`} color={colors.textDim} /> : null}
-        {task.status === 'done' ? <Tag label="Выполнена" color={colors.textFaint} /> : null}
+        {shown.status === 'claimed' && assigneeName ? <Tag label={`Делает ${assigneeName}`} color={colors.textDim} /> : null}
+        {shown.status === 'done' ? <Tag label="Выполнена" color={colors.textFaint} /> : null}
       </View>
-      {task.description ? (
+      {shown.description ? (
         <>
           <T variant="label" style={{ marginBottom: 6 }}>Описание</T>
-          <T variant="body" color={colors.textDim} style={{ marginBottom: space.xl }}>{task.description}</T>
+          <T variant="body" color={colors.textDim} style={{ marginBottom: space.xl }}>{shown.description}</T>
         </>
       ) : null}
 
-      {task.status === 'open' ? (
+      {shown.status === 'open' ? (
         <Button title="Беру на себя" tone="red" onPress={onClaim} />
-      ) : task.status === 'claimed' && mine ? (
+      ) : shown.status === 'claimed' && mine ? (
         <>
           <Button title="Отметить готовой" tone="red" onPress={onComplete} />
           <Button title="Отказаться" tone="ghost" style={{ marginTop: 10 }} onPress={onRelease} />
         </>
-      ) : task.status === 'claimed' ? (
+      ) : shown.status === 'claimed' ? (
         <Button title={`Делает ${assigneeName}`} tone="light" disabled />
       ) : null}
 
@@ -253,9 +295,6 @@ const styles = StyleSheet.create({
   cardBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
   assigneeRow: { flexDirection: 'row', alignItems: 'center' },
   freeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pulse: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.red },
   claimBtn: { backgroundColor: colors.red, paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.pill },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  switch: { width: 48, height: 28, borderRadius: 14, backgroundColor: colors.surfaceHi, padding: 3, justifyContent: 'center' },
-  knob: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff' },
 });

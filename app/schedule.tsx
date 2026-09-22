@@ -1,10 +1,20 @@
+import {
+  MotionPressable as Pressable,
+  MotionRow,
+  MotionView,
+  duration,
+  fadeIn,
+  haptics,
+  useSelectProgress,
+} from '@/components/motion';
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AvatarStack, Button, IconButton, T } from '@/components/ui';
-import { Sheet } from '@/components/Sheet';
+import { Sheet, useLastValue } from '@/components/Sheet';
 import { ChipSelect, Field } from '@/components/form';
 import { useStore } from '@/store/StoreContext';
 import { colors, radius, space } from '@/theme';
@@ -19,6 +29,7 @@ export default function Schedule() {
   const insets = useSafeAreaInsets();
   const { data, me, memberById, addWorkHour, updateWorkHour, toggleAttend, removeWorkHour } = useStore();
   const [form, setForm] = useState<WorkHour | 'new' | null>(null);
+  const shownForm = useLastValue(form);
 
   const byDay = useMemo(() => {
     const map: Record<number, typeof data.workHours> = {};
@@ -50,7 +61,7 @@ export default function Schedule() {
           if (!slots.length) return null;
           const isToday = wd === todayWeekday;
           return (
-            <View key={wd} style={{ marginBottom: space.xl }}>
+            <MotionView key={wd} style={{ marginBottom: space.xl }}>
               <View style={styles.dayHeader}>
                 <T variant="h2" color={isToday ? colors.red : colors.text}>
                   {WEEKDAYS_RU_FULL[wd]}
@@ -68,7 +79,7 @@ export default function Schedule() {
                 const attendees = w.attendees.map((id) => memberById(id)!).filter(Boolean);
                 const iAttend = w.attendees.includes(me.id);
                 return (
-                  <View key={w.id} style={styles.slot}>
+                  <MotionRow key={w.id} style={styles.slot}>
                     <View style={styles.timeCol}>
                       <T variant="title" color={colors.red}>{w.start}</T>
                       <View style={styles.timeLine} />
@@ -77,26 +88,19 @@ export default function Schedule() {
                     <View style={{ flex: 1, marginLeft: space.lg }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <T variant="title" style={{ flex: 1 }}>{w.title}</T>
-                        <Pressable hitSlop={8} onPress={() => setForm(w)}>
+                        <Pressable hitSlop={8} scaleTo={0.86} haptic="select" onPress={() => setForm(w)}>
                           <Ionicons name="create-outline" size={18} color={colors.textFaint} />
                         </Pressable>
                       </View>
                       <View style={styles.slotBottom}>
                         <AvatarStack members={attendees} size={26} />
-                        <Pressable
-                          onPress={() => toggleAttend(w.id)}
-                          style={[styles.attendBtn, iAttend ? { backgroundColor: colors.red } : { backgroundColor: colors.surfaceHi }]}
-                        >
-                          <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
-                            {iAttend ? 'Я в деле ✓' : 'Отметиться'}
-                          </T>
-                        </Pressable>
+                        <AttendButton attending={iAttend} onPress={() => toggleAttend(w.id)} />
                       </View>
                     </View>
-                  </View>
+                  </MotionRow>
                 );
               })}
-            </View>
+            </MotionView>
           );
         })}
 
@@ -109,8 +113,9 @@ export default function Schedule() {
       </ScrollView>
 
       <WorkHourFormSheet
-        key={form === 'new' ? 'new' : form?.id}
-        target={form}
+        key={shownForm === 'new' ? 'new' : shownForm?.id}
+        visible={form !== null}
+        target={shownForm}
         onClose={() => setForm(null)}
         onSubmit={(p, id) => {
           if (id) updateWorkHour(id, p);
@@ -123,13 +128,39 @@ export default function Schedule() {
   );
 }
 
+/** Signing up for a slot: fill cross-fades, label swaps behind a fade. */
+function AttendButton({ attending, onPress }: { attending: boolean; onPress: () => void }) {
+  const p = useSelectProgress(attending, duration.chip);
+  const bg = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(p.value, [0, 1], [colors.surfaceHi, colors.red]),
+  }));
+  return (
+    <Pressable
+      style={[styles.attendBtn, bg] as any}
+      onPress={() => {
+        if (attending) haptics.select();
+        else haptics.success();
+        onPress();
+      }}
+    >
+      <Animated.View key={attending ? 'in' : 'out'} entering={fadeIn}>
+        <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
+          {attending ? 'Я в деле ✓' : 'Отметиться'}
+        </T>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 function WorkHourFormSheet({
   target,
+  visible,
   onClose,
   onSubmit,
   onDelete,
 }: {
   target: WorkHour | 'new' | null;
+  visible: boolean;
   onClose: () => void;
   onSubmit: (p: { title: string; weekday: number; start: string; end: string }, id?: string) => void;
   onDelete: (id: string) => void;
@@ -144,7 +175,7 @@ function WorkHourFormSheet({
   const valid = title.trim() && timeOk(start) && timeOk(end);
 
   return (
-    <Sheet visible={target !== null} onClose={onClose} title={existing ? 'Co-work' : 'Новый co-work'}>
+    <Sheet visible={visible} onClose={onClose} title={existing ? 'Co-work' : 'Новый co-work'}>
       <Field label="Название" value={title} onChangeText={setTitle} placeholder="Напр. Общий co-work" autoFocus={!existing} />
       <ChipSelect label="День недели" options={WEEKDAYS_RU} value={weekday as any} onChange={(v) => setWeekday(v)} />
       <View style={{ flexDirection: 'row', gap: space.md }}>

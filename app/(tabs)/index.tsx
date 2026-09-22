@@ -1,11 +1,30 @@
+import {
+  AnimatedCount,
+  MotionPressable as Pressable,
+  MotionRow,
+  MotionView,
+  duration,
+  fadeIn,
+  fadeOut,
+  haptics,
+  spring,
+  springTo,
+  timing,
+  useSelectProgress,
+} from '@/components/motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import Animated, {
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
 import { AvatarStack, Button, Card, IconButton, T, Tag } from '@/components/ui';
 import { useStore } from '@/store/StoreContext';
-import { colors, radius, space } from '@/theme';
+import { colors, radius, space, type } from '@/theme';
 import {
   WEEKDAYS_RU,
   countdown,
@@ -121,29 +140,24 @@ export default function Home() {
           decelerationRate="fast"
           scrollEventThrottle={16}
           onScroll={(e) => setFarFromToday(Math.abs(e.nativeEvent.contentOffset.x - todayX) > STEP * 2.5)}
-          contentContainerStyle={{ gap: GAP, paddingRight: space.xl }}
+          // Headroom for the selected cell: it scales to 1.04 and lifts 2px,
+          // and the spring overshoots past both — without this the ScrollView
+          // clips the top of the day you just picked.
+          contentContainerStyle={{ gap: GAP, paddingRight: space.xl, paddingVertical: 8 }}
         >
           {days.map((d, i) => {
             const iso = toISO(d);
-            const isSel = iso === selected;
-            const isTod = iso === today;
             return (
-              <Pressable
+              <DayCell
                 key={i}
-                onPress={() => setSelected(iso)}
-                style={[
-                  styles.day,
-                  isSel ? styles.daySelected : null,
-                  !isSel && isTod ? styles.dayToday : null,
-                ]}
-              >
-                <T variant="h2" color={isSel ? colors.black : isTod ? colors.red : colors.text}>
-                  {d.getDate()}
-                </T>
-                <T variant="small" color={isSel ? colors.black : isTod ? colors.red : colors.textDim}>
-                  {WEEKDAYS_RU[d.getDay()]}
-                </T>
-              </Pressable>
+                day={d}
+                selected={iso === selected}
+                today={iso === today}
+                onPress={() => {
+                  if (iso !== selected) haptics.select();
+                  setSelected(iso);
+                }}
+              />
             );
           })}
         </ScrollView>
@@ -151,140 +165,154 @@ export default function Home() {
 
       {/* Back to today */}
       {!isToday || farFromToday ? (
-        <Pressable style={styles.todayBtn} onPress={goToday}>
-          <Ionicons name="arrow-up" size={14} color={colors.white} style={{ transform: [{ rotate: '-45deg' }] }} />
-          <T variant="small" color={colors.white} style={{ fontWeight: '800', marginLeft: 6 }}>
-            Сегодня
-          </T>
-        </Pressable>
+        <Animated.View entering={fadeIn} exiting={fadeOut}>
+          <Pressable style={styles.todayBtn} haptic="tap" onPress={goToday}>
+            <Ionicons name="arrow-up" size={14} color={colors.white} style={{ transform: [{ rotate: '-45deg' }] }} />
+            <T variant="small" color={colors.white} style={{ fontWeight: '800', marginLeft: 6 }}>
+              Сегодня
+            </T>
+          </Pressable>
+        </Animated.View>
       ) : null}
 
-      {isToday ? (
-        <>
-          {/* Today / next common hours */}
-          <Pressable onPress={() => router.push('/schedule')}>
-            <Card tone="paper" style={{ marginBottom: space.sm }}>
-              <View style={styles.rowBetween}>
-                <T variant="label" color="rgba(0,0,0,0.5)">
-                  {todaySessions.length ? 'Сегодня работаем вместе' : 'Ближайший co-work'}
-                </T>
-                <Ionicons name="arrow-forward" size={18} color={colors.black} />
-              </View>
-              {nextSession ? (
-                <>
-                  <T variant="h1" color={colors.black} style={{ marginTop: 8 }}>
-                    {nextSession.title}
-                  </T>
-                  <View style={[styles.rowBetween, { marginTop: 14 }]}>
-                    <View style={styles.timePill}>
-                      <Ionicons name="time-outline" size={15} color={colors.black} />
-                      <T variant="body" color={colors.black} style={{ fontWeight: '700', marginLeft: 6 }}>
-                        {WEEKDAYS_RU[nextSession.weekday]} · {nextSession.start}–{nextSession.end}
-                      </T>
-                    </View>
-                    <AvatarStack members={attendees} size={30} />
-                  </View>
-                  <View style={{ marginTop: 16 }}>
-                    <Button
-                      title={iAttend ? 'Я в деле ✓' : 'Присоединиться'}
-                      tone={iAttend ? 'red' : 'primary'}
-                      onPress={() => toggleAttend(nextSession.id)}
-                      style={{ backgroundColor: iAttend ? colors.red : colors.black }}
-                    />
-                  </View>
-                </>
-              ) : (
-                <T variant="body" color="rgba(0,0,0,0.6)" style={{ marginTop: 10 }}>
-                  Пока нет общих часов. Добавь первый слот →
-                </T>
-              )}
-            </Card>
-          </Pressable>
-
-          {/* Next deadline */}
-          {nextDeadline ? (
-            <Pressable onPress={() => router.push('/deadlines')}>
-              <Card tone="red" style={{ marginBottom: space.sm }}>
+      <MotionView key={selected}>
+        {isToday ? (
+          <>
+            {/* Today / next common hours */}
+            <Pressable onPress={() => router.push('/schedule')}>
+              <Card tone="paper" style={{ marginBottom: space.sm }}>
                 <View style={styles.rowBetween}>
-                  <T variant="label" color="rgba(255,255,255,0.7)">
-                    Ближайший дедлайн · {nextDeadline.project}
+                  <T variant="label" color="rgba(0,0,0,0.5)">
+                    {todaySessions.length ? 'Сегодня работаем вместе' : 'Ближайший co-work'}
                   </T>
-                  <View style={styles.cdPill}>
-                    <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
-                      {countdown(nextDeadline.date).text}
-                    </T>
-                  </View>
+                  <Ionicons name="arrow-forward" size={18} color={colors.black} />
                 </View>
-                <T variant="h1" color="#fff" style={{ marginTop: 10 }}>
-                  {nextDeadline.title}
-                </T>
-                <T variant="body" color="rgba(255,255,255,0.75)" style={{ marginTop: 8 }}>
-                  Ответственный: {memberById(nextDeadline.ownerId)?.name} · {fmtShort(nextDeadline.date)}
-                </T>
+                {nextSession ? (
+                  <>
+                    <T variant="h1" color={colors.black} style={{ marginTop: 8 }}>
+                      {nextSession.title}
+                    </T>
+                    <View style={[styles.rowBetween, { marginTop: 14 }]}>
+                      <View style={styles.timePill}>
+                        <Ionicons name="time-outline" size={15} color={colors.black} />
+                        <T variant="body" color={colors.black} style={{ fontWeight: '700', marginLeft: 6 }}>
+                          {WEEKDAYS_RU[nextSession.weekday]} · {nextSession.start}–{nextSession.end}
+                        </T>
+                      </View>
+                      <AvatarStack members={attendees} size={30} />
+                    </View>
+                    <View style={{ marginTop: 16 }}>
+                      <Button
+                        title={iAttend ? 'Я в деле ✓' : 'Присоединиться'}
+                        tone={iAttend ? 'red' : 'primary'}
+                        onPress={() => toggleAttend(nextSession.id)}
+                        style={{ backgroundColor: iAttend ? colors.red : colors.black }}
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <T variant="body" color="rgba(0,0,0,0.6)" style={{ marginTop: 10 }}>
+                    Пока нет общих часов. Добавь первый слот →
+                  </T>
+                )}
               </Card>
             </Pressable>
-          ) : null}
-        </>
-      ) : (
-        /* Selected-day agenda */
-        <View style={{ marginBottom: space.sm }}>
-          <T variant="h2" style={{ marginBottom: space.md, textTransform: 'capitalize' }}>
-            {fmtLong(selected)}
-          </T>
 
-          {agendaEmpty ? (
-            <View style={styles.emptyDay}>
-              <Ionicons name="cafe-outline" size={30} color={colors.textFaint} />
-              <T variant="body" color={colors.textDim} style={{ marginTop: 10 }}>
-                На этот день ничего нет 🎉
-              </T>
-            </View>
-          ) : (
-            <View style={{ gap: space.sm }}>
-              {agenda.sessions.map((w) => (
-                <View key={w.id} style={styles.agendaRow}>
-                  <View style={[styles.agendaDot, { backgroundColor: colors.paper }]} />
-                  <View style={{ flex: 1 }}>
-                    <T variant="title">{w.title}</T>
-                    <T variant="small">Co-work · {w.start}–{w.end}</T>
-                  </View>
-                  <Tag label="часы" color={colors.textDim} />
-                </View>
-              ))}
-              {agenda.deadlines.map((d) => (
-                <Pressable key={d.id} style={styles.agendaRow} onPress={() => router.push('/deadlines')}>
-                  <View style={[styles.agendaDot, { backgroundColor: colors.red }]} />
-                  <View style={{ flex: 1 }}>
-                    <T variant="title">{d.title}</T>
-                    <T variant="small">Дедлайн · {memberById(d.ownerId)?.name}</T>
-                  </View>
-                  <Tag label={d.project} color={colors.red} />
-                </Pressable>
-              ))}
-              {agenda.tasks.map((t) => (
-                <Pressable key={t.id} style={styles.agendaRow} onPress={() => router.push('/tasks')}>
-                  <View style={[styles.agendaDot, { backgroundColor: '#4C6FFF' }]} />
-                  <View style={{ flex: 1 }}>
-                    <T variant="title">{t.title}</T>
-                    <T variant="small">
-                      Таска · {t.status === 'open' ? 'свободна' : t.status === 'done' ? 'готово' : `делает ${memberById(t.assigneeId || '')?.name ?? ''}`}
+            {/* Next deadline */}
+            {nextDeadline ? (
+              <Pressable onPress={() => router.push('/deadlines')}>
+                <Card tone="red" style={{ marginBottom: space.sm }}>
+                  <View style={styles.rowBetween}>
+                    <T variant="label" color="rgba(255,255,255,0.7)">
+                      Ближайший дедлайн · {nextDeadline.project}
                     </T>
+                    <View style={styles.cdPill}>
+                      <T variant="small" color="#fff" style={{ fontWeight: '800' }}>
+                        {countdown(nextDeadline.date).text}
+                      </T>
+                    </View>
                   </View>
-                </Pressable>
-              ))}
-              {agenda.events.map((e) => (
-                <Pressable key={e.id} style={styles.agendaRow} onPress={() => router.push('/events')}>
-                  <View style={[styles.agendaDot, { backgroundColor: '#12B76A' }]} />
-                  <View style={{ flex: 1 }}>
-                    <T variant="title">{e.title}</T>
-                    <T variant="small">{e.kind} · {e.location}</T>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
+                  <T variant="h1" color="#fff" style={{ marginTop: 10 }}>
+                    {nextDeadline.title}
+                  </T>
+                  <T variant="body" color="rgba(255,255,255,0.75)" style={{ marginTop: 8 }}>
+                    Ответственный: {memberById(nextDeadline.ownerId)?.name} · {fmtShort(nextDeadline.date)}
+                  </T>
+                </Card>
+              </Pressable>
+            ) : null}
+          </>
+        ) : (
+          /* Selected-day agenda */
+          <View style={{ marginBottom: space.sm }}>
+            <T variant="h2" style={{ marginBottom: space.md, textTransform: 'capitalize' }}>
+              {fmtLong(selected)}
+            </T>
+
+            {agendaEmpty ? (
+              <View style={styles.emptyDay}>
+                <Ionicons name="cafe-outline" size={30} color={colors.textFaint} />
+                <T variant="body" color={colors.textDim} style={{ marginTop: 10 }}>
+                  На этот день ничего нет 🎉
+                </T>
+              </View>
+            ) : (
+              <View style={{ gap: space.sm }}>
+                {agenda.sessions.map((w, i) => (
+                  <MotionRow key={w.id} index={i} style={styles.agendaRow}>
+                    <View style={[styles.agendaDot, { backgroundColor: colors.paper }]} />
+                    <View style={{ flex: 1 }}>
+                      <T variant="title">{w.title}</T>
+                      <T variant="small">Co-work · {w.start}–{w.end}</T>
+                    </View>
+                    <Tag label="часы" color={colors.textDim} />
+                  </MotionRow>
+                ))}
+                {agenda.deadlines.map((d, i) => (
+                  <MotionRow key={d.id} index={agenda.sessions.length + i}>
+                    <Pressable style={styles.agendaRow} onPress={() => router.push('/deadlines')}>
+                      <View style={[styles.agendaDot, { backgroundColor: colors.red }]} />
+                      <View style={{ flex: 1 }}>
+                        <T variant="title">{d.title}</T>
+                        <T variant="small">Дедлайн · {memberById(d.ownerId)?.name}</T>
+                      </View>
+                      <Tag label={d.project} color={colors.red} />
+                    </Pressable>
+                  </MotionRow>
+                ))}
+                {agenda.tasks.map((t, i) => (
+                  <MotionRow key={t.id} index={agenda.sessions.length + agenda.deadlines.length + i}>
+                    <Pressable style={styles.agendaRow} onPress={() => router.push('/tasks')}>
+                      <View style={[styles.agendaDot, { backgroundColor: '#4C6FFF' }]} />
+                      <View style={{ flex: 1 }}>
+                        <T variant="title">{t.title}</T>
+                        <T variant="small">
+                          Таска · {t.status === 'open' ? 'свободна' : t.status === 'done' ? 'готово' : `делает ${memberById(t.assigneeId || '')?.name ?? ''}`}
+                        </T>
+                      </View>
+                    </Pressable>
+                  </MotionRow>
+                ))}
+                {agenda.events.map((e, i) => (
+                  <MotionRow
+                    key={e.id}
+                    index={agenda.sessions.length + agenda.deadlines.length + agenda.tasks.length + i}
+                  >
+                    <Pressable style={styles.agendaRow} onPress={() => router.push('/events')}>
+                      <View style={[styles.agendaDot, { backgroundColor: '#12B76A' }]} />
+                      <View style={{ flex: 1 }}>
+                        <T variant="title">{e.title}</T>
+                        <T variant="small">{e.kind} · {e.location}</T>
+                      </View>
+                    </Pressable>
+                  </MotionRow>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+      </MotionView>
 
       {/* Quick links */}
       <View style={styles.quickRow}>
@@ -292,18 +320,14 @@ export default function Home() {
           <View style={[styles.quickIcon, { backgroundColor: colors.redSoft }]}>
             <Ionicons name="checkbox" size={20} color={colors.red} />
           </View>
-          <T variant="h1" style={{ marginTop: 14 }}>
-            {openTasks}
-          </T>
+          <AnimatedCount value={openTasks} style={[type.h1, { marginTop: 14 }]} />
           <T variant="small">открытых тасок</T>
         </Pressable>
         <Pressable style={styles.quickCard} onPress={() => router.push('/worklog')}>
           <View style={[styles.quickIcon, { backgroundColor: colors.surfaceHi }]}>
             <Ionicons name="document-text" size={20} color={colors.white} />
           </View>
-          <T variant="h1" style={{ marginTop: 14 }}>
-            {data.log.length}
-          </T>
+          <AnimatedCount value={data.log.length} style={[type.h1, { marginTop: 14 }]} />
           <T variant="small">записей в логе</T>
         </Pressable>
       </View>
@@ -324,6 +348,41 @@ export default function Home() {
   );
 }
 
+/** Day-strip cell whose background + text smoothly fade on selection. */
+function DayCell({
+  day,
+  selected,
+  today,
+  onPress,
+}: {
+  day: Date;
+  selected: boolean;
+  today: boolean;
+  onPress: () => void;
+}) {
+  const p = useSelectProgress(selected);
+  // The lift springs separately from the colour fade: colour explains *which*
+  // day is current, the lift is what makes the tap feel received.
+  const lift = useSharedValue(selected ? 1 : 0);
+  useEffect(() => {
+    lift.value = selected ? springTo(1, spring.pop) : timing(0, duration.exit);
+  }, [selected, lift]);
+  const restNum = today ? colors.red : colors.text;
+  const restDow = today ? colors.red : colors.textDim;
+  const bg = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(p.value, [0, 1], [colors.surface, colors.white]),
+    transform: [{ scale: 1 + Math.max(0, lift.value) * 0.04 }, { translateY: -Math.max(0, lift.value) * 2 }],
+  }));
+  const numColor = useAnimatedStyle(() => ({ color: interpolateColor(p.value, [0, 1], [restNum, colors.black]) }));
+  const dowColor = useAnimatedStyle(() => ({ color: interpolateColor(p.value, [0, 1], [restDow, colors.black]) }));
+  return (
+    <Pressable onPress={onPress} style={[styles.day, !selected && today ? styles.dayToday : null, bg] as any}>
+      <Animated.Text style={[type.h2, numColor]}>{day.getDate()}</Animated.Text>
+      <Animated.Text style={[type.small, dowColor]}>{WEEKDAYS_RU[day.getDay()]}</Animated.Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
@@ -337,7 +396,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stripRow: { marginBottom: space.sm, marginHorizontal: -space.xl, paddingLeft: space.xl },
+  // Pulled up by half the strip's new padding so the header spacing stays put.
+  stripRow: { marginTop: -4, marginBottom: space.xs, marginHorizontal: -space.xl, paddingLeft: space.xl },
   day: {
     width: CELL,
     height: 60,

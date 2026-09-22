@@ -1,9 +1,18 @@
+import {
+  AnimatedCheck,
+  DimView,
+  MotionPressable as Pressable,
+  MotionRow,
+  fadeIn,
+  fadeOut,
+} from '@/components/motion';
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
 import { Avatar, Button, IconButton, Pill, T, Tag } from '@/components/ui';
-import { Sheet } from '@/components/Sheet';
+import { Sheet, useLastValue } from '@/components/Sheet';
 import { DateField, Field, MemberSelect } from '@/components/form';
 import { useStore } from '@/store/StoreContext';
 import { colors, radius, space } from '@/theme';
@@ -17,6 +26,7 @@ export default function Deadlines() {
   const { data, me, memberById, addDeadline, updateDeadline, toggleDeadlineDone, removeDeadline } = useStore();
   const [filter, setFilter] = useState<Filter>('active');
   const [editing, setEditing] = useState<Deadline | 'new' | null>(null);
+  const shownEditing = useLastValue(editing);
 
   const list = useMemo(() => {
     let arr = [...data.deadlines];
@@ -46,76 +56,79 @@ export default function Deadlines() {
         <Pill label="Готово" active={filter === 'done'} onPress={() => setFilter('done')} />
       </View>
 
+      {/* Rows own their enter/exit/layout, so ticking one done or switching
+          filters re-sorts the list in front of you instead of cutting to it. */}
       {list.length === 0 ? (
-        <View style={{ paddingTop: 60, alignItems: 'center' }}>
+        <Animated.View style={{ paddingTop: 60, alignItems: 'center' }} entering={fadeIn} exiting={fadeOut}>
           <Ionicons name="flame-outline" size={34} color={colors.textFaint} />
           <T variant="small" style={{ marginTop: 10 }}>
             Тут пусто. Добавь первый дедлайн →
           </T>
-        </View>
+        </Animated.View>
       ) : (
-        list.map((d) => {
+        list.map((d, index) => {
           const cd = countdown(d.date);
           const done = d.status === 'done';
           const owner = memberById(d.ownerId);
           return (
-            <Pressable key={d.id} onPress={() => setEditing(d)}>
-              <View style={[styles.card, done ? { opacity: 0.5 } : null]}>
-                <Pressable
-                  hitSlop={10}
-                  onPress={() => toggleDeadlineDone(d.id)}
-                  style={[styles.check, done ? { backgroundColor: colors.red, borderColor: colors.red } : null]}
-                >
-                  {done ? <Ionicons name="checkmark" size={18} color="#fff" /> : null}
-                </Pressable>
-                <View style={{ flex: 1, marginLeft: space.md }}>
-                  <T variant="title" style={done ? { textDecorationLine: 'line-through' } : null}>
-                    {d.title}
-                  </T>
-                  <View style={styles.metaRow}>
-                    <Tag label={d.project} color={colors.textDim} />
-                    <View style={styles.owner}>
-                      <Avatar member={owner} size={18} />
-                      <T variant="small" style={{ marginLeft: 5 }}>
-                        {owner?.name}
-                      </T>
+            <MotionRow key={d.id} index={index}>
+              <Pressable onPress={() => setEditing(d)}>
+                <DimView dim={done ? 0.5 : 1} style={styles.card}>
+                  <AnimatedCheck checked={done} onPress={() => toggleDeadlineDone(d.id)} />
+                  <View style={{ flex: 1, marginLeft: space.md }}>
+                    <T variant="title" style={done ? { textDecorationLine: 'line-through' } : null}>
+                      {d.title}
+                    </T>
+                    <View style={styles.metaRow}>
+                      <Tag label={d.project} color={colors.textDim} />
+                      <View style={styles.owner}>
+                        <Avatar member={owner} size={18} />
+                        <T variant="small" style={{ marginLeft: 5 }}>
+                          {owner?.name}
+                        </T>
+                      </View>
                     </View>
                   </View>
-                </View>
-                {!done ? (
-                  <View
-                    style={[
-                      styles.cd,
-                      cd.overdue
-                        ? { backgroundColor: colors.red }
-                        : cd.urgent
-                        ? { backgroundColor: colors.redSoft }
-                        : { backgroundColor: colors.surfaceHi },
-                    ]}
-                  >
-                    <T
-                      variant="small"
-                      color={cd.overdue ? '#fff' : cd.urgent ? colors.red : colors.text}
-                      style={{ fontWeight: '800' }}
+                  {!done ? (
+                    <Animated.View
+                      key="cd"
+                      entering={fadeIn}
+                      style={[
+                        styles.cd,
+                        cd.overdue
+                          ? { backgroundColor: colors.red }
+                          : cd.urgent
+                          ? { backgroundColor: colors.redSoft }
+                          : { backgroundColor: colors.surfaceHi },
+                      ]}
                     >
-                      {cd.text}
-                    </T>
-                    <T variant="small" color={cd.overdue ? 'rgba(255,255,255,0.8)' : colors.textDim} style={{ fontSize: 11 }}>
-                      {fmtShort(d.date)}
-                    </T>
-                  </View>
-                ) : (
-                  <Tag label="Готово" color={colors.textFaint} />
-                )}
-              </View>
-            </Pressable>
+                      <T
+                        variant="small"
+                        color={cd.overdue ? '#fff' : cd.urgent ? colors.red : colors.text}
+                        style={{ fontWeight: '800' }}
+                      >
+                        {cd.text}
+                      </T>
+                      <T variant="small" color={cd.overdue ? 'rgba(255,255,255,0.8)' : colors.textDim} style={{ fontSize: 11 }}>
+                        {fmtShort(d.date)}
+                      </T>
+                    </Animated.View>
+                  ) : (
+                    <Animated.View key="done" entering={fadeIn}>
+                      <Tag label="Готово" color={colors.textFaint} />
+                    </Animated.View>
+                  )}
+                </DimView>
+              </Pressable>
+            </MotionRow>
           );
         })
       )}
 
       <DeadlineSheet
-        key={editing === 'new' ? 'new' : editing?.id}
-        editing={editing}
+        key={shownEditing === 'new' ? 'new' : shownEditing?.id}
+        visible={editing !== null}
+        editing={shownEditing}
         onClose={() => setEditing(null)}
         members={data.members}
         defaultOwner={me.id}
@@ -132,6 +145,7 @@ export default function Deadlines() {
 
 function DeadlineSheet({
   editing,
+  visible,
   onClose,
   onSave,
   onDelete,
@@ -139,6 +153,7 @@ function DeadlineSheet({
   defaultOwner,
 }: {
   editing: Deadline | 'new' | null;
+  visible: boolean;
   onClose: () => void;
   onSave: (payload: Omit<Deadline, 'id' | 'createdAt' | 'status'>, id?: string) => void;
   onDelete: (id: string) => void;
@@ -154,7 +169,7 @@ function DeadlineSheet({
   const valid = title.trim().length > 0 && project.trim().length > 0;
 
   return (
-    <Sheet visible={editing !== null} onClose={onClose} title={existing ? 'Дедлайн' : 'Новый дедлайн'}>
+    <Sheet visible={visible} onClose={onClose} title={existing ? 'Дедлайн' : 'Новый дедлайн'}>
       <Field label="Что нужно сделать" value={title} onChangeText={setTitle} placeholder="Напр. Финальный кейс" autoFocus />
       <Field label="Проект" value={project} onChangeText={setProject} placeholder="Напр. Portfolio" />
       <MemberSelect label="Ответственный" members={members as any} value={ownerId} onChange={setOwnerId} />
@@ -182,15 +197,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: space.md,
     marginBottom: space.sm,
-  },
-  check: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: colors.stroke,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   owner: { flexDirection: 'row', alignItems: 'center' },
