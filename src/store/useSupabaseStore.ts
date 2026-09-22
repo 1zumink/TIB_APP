@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase, MEMBER_PALETTE } from '../lib/supabase';
 import { AppData, ID, Member } from '../types';
 import { fromDeadline, fromEvent, fromLog, fromProfile, fromTask, fromWorkHour } from './mappers';
+import { composeName } from '../lib/member';
 import type { StoreContextValue } from './StoreContext';
 
 const EMPTY: AppData = {
@@ -111,11 +113,27 @@ export function useSupabaseStore(): StoreContextValue {
   }, [userId]);
 
   /* ---------- helpers ---------- */
+  /*
+   * Writes used to fail in silence — a rejected query only reached the console,
+   * so on the device a save looked like it worked and then quietly reverted on
+   * the next refetch. Anything the user pressed a button for has to say so when
+   * it doesn't happen.
+   */
   const write = useCallback(
-    async (p: PromiseLike<{ error: any }>) => {
+    async (p: PromiseLike<{ error: any }>, what?: string) => {
       const { error } = await p;
-      if (error) console.warn('[supabase]', error.message);
-      else scheduleRefetch();
+      if (!error) {
+        scheduleRefetch();
+        return;
+      }
+      console.warn('[supabase]', error.message);
+      const missingColumn = /column .* does not exist|schema cache/i.test(error.message ?? '');
+      Alert.alert(
+        what ? `Не удалось сохранить: ${what}` : 'Не удалось сохранить',
+        missingColumn
+          ? 'В базе нет нужных колонок. Прогони supabase/migration-card-fields.sql в SQL Editor.'
+          : error.message
+      );
     },
     [scheduleRefetch]
   );
@@ -123,7 +141,7 @@ export function useSupabaseStore(): StoreContextValue {
   const value = useMemo<StoreContextValue>(() => {
     const me =
       data.members.find((m) => m.id === data.currentUserId) ||
-      ({ id: userId || '', name: '…', role: '', code: '', color: '#FF0044' } as Member);
+      ({ id: userId || '', name: '…', role: '', code: '', color: '#FF0044' } as unknown as Member);
     const memberById = (id: ID) => data.members.find((m) => m.id === id);
 
     return {
@@ -153,7 +171,24 @@ export function useSupabaseStore(): StoreContextValue {
       },
       updateProfile: (patch) => {
         if (!userId) return;
-        write(sb.from('profiles').update(patch).eq('id', userId));
+        const current = data.members.find((m) => m.id === userId);
+        const firstName = patch.firstName ?? current?.firstName ?? '';
+        const lastName = patch.lastName ?? current?.lastName ?? '';
+        // Columns are snake_case; `name` is written alongside so the server copy
+        // stays consistent with the two fields it is composed from.
+        const row: Record<string, unknown> = { name: composeName(firstName, lastName, current?.name ?? '') };
+        if (patch.firstName !== undefined) row.first_name = patch.firstName;
+        if (patch.lastName !== undefined) row.last_name = patch.lastName;
+        if (patch.role !== undefined) row.role = patch.role;
+        if (patch.roleSecondary !== undefined) row.role_secondary = patch.roleSecondary;
+        if (patch.code !== undefined) row.code = patch.code;
+        if (patch.color !== undefined) row.color = patch.color;
+        if (patch.phone !== undefined) row.phone = patch.phone;
+        if (patch.website !== undefined) row.website = patch.website;
+        if (patch.handle !== undefined) row.handle = patch.handle;
+        if (patch.photoUrl !== undefined) row.photo_url = patch.photoUrl;
+        if (patch.signature !== undefined) row.signature = patch.signature;
+        write(sb.from('profiles').update(row).eq('id', userId), 'профиль');
       },
 
       setCurrentUser: () => {}, // no-op with auth (you are the logged-in user)

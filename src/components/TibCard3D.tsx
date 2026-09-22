@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useIsFocused, useNavigation } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -15,25 +15,66 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { colors, radius } from '../theme';
+import { SvgXml } from 'react-native-svg';
+import {
+  ART_BARCODE,
+  BARCODE_FLIP,
+  SIGNATURE_ART,
+  SIGNATURE_BACK_OPACITY,
+  SIGNATURE_FRONT_OPACITY,
+  SIGNATURE_PLACEMENT,
+  type ArtPlacement,
+} from './cardArt';
 import { Laminate } from './Laminate';
-import { T } from './ui';
 import { TibLogo } from './TibLogo';
+import { fonts } from '../theme';
 import { Member } from '../types';
 
-const CARD_W = 300;
-const CARD_H = 190;
+/**
+ * The card is laid out in Figma's coordinates (900 × 570) and scaled to
+ * whatever width the screen gives us, so every number below can be read
+ * straight off the design instead of being pre-divided by hand.
+ */
+const DESIGN_W = 900;
+const DESIGN_H = 570;
+const MAX_CARD_W = 344;
+
 const PERSPECTIVE = 1000;
-/** One revolution. Slow enough to read the card while it turns, brisk enough
- *  that the laminate catches the light on a glance rather than a stare. */
+/** One revolution. Slow enough to read the card while it turns. */
 const SPIN_MS = 14000;
 
-/**
- * A physical-feeling TIB_ID card you spin with your finger.
- * Front + back faces use backfaceVisibility so only the facing side shows.
- * Placeholder art — swap freely once the real card design is ready.
+const RED = '#FF0042';
+const PAPER = '#FFFFFF';
+
+/*
+ * The bundled portrait already has the design's white `overlay` blend baked in
+ * — React Native has no blend modes, and a flat translucent layer cannot
+ * reproduce one (overlay doubles the darks and clips the lights). Matching the
+ * design pixel for pixel means the transform lives in the file:
+ *   v' = v > 127 ? 255 : v * 2   (per channel)
+ * Re-apply that if this photo is ever replaced. A photoUrl from the profile is
+ * shown untouched, since we cannot process a remote file.
  */
-export function TibCard3D({ member }: { member: Member }) {
+const PORTRAIT = require('../../assets/card/portrait.jpg');
+
+export function TibCard3D({
+  member,
+  width,
+  preview = false,
+}: {
+  member: Member;
+  /** Fixed width instead of the responsive fit — used to check the print 1:1. */
+  width?: number;
+  /** Print only: no spin, no film, no gesture. For comparing against the design. */
+  preview?: boolean;
+}) {
+  const { width: windowW } = useWindowDimensions();
+  const cardW = width ?? Math.min(MAX_CARD_W, windowW - 48);
+  const s = cardW / DESIGN_W;
+  const cardH = DESIGN_H * s;
+  /** Figma pixels → screen points. */
+  const px = useCallback((n: number) => n * s, [s]);
+
   const rotY = useSharedValue(0); // degrees, continuous
   const rotX = useSharedValue(0); // degrees, clamped tilt
   const start = useSharedValue(0);
@@ -58,10 +99,8 @@ export function TibCard3D({ member }: { member: Member }) {
       swipeOn.current = enabled;
       navigation.setOptions({ swipeEnabled: enabled } as object);
     },
-    [navigation],
+    [navigation]
   );
-  // A gesture cancelled by an unmount (tab change, sign-out) must not leave the
-  // pager switched off for the rest of the session.
   useEffect(() => () => setPagerSwipe(true), [setPagerSwipe]);
 
   /*
@@ -79,7 +118,7 @@ export function TibCard3D({ member }: { member: Member }) {
         reduceMotion: ReduceMotion.Never,
       }),
       -1,
-      false,
+      false
     );
   };
 
@@ -87,15 +126,15 @@ export function TibCard3D({ member }: { member: Member }) {
   // tabs mounted, and an invisible card has no business burning frames.
   const focused = useIsFocused();
   useEffect(() => {
+    if (preview) return;
     if (focused) spin();
     else cancelAnimation(rotY);
-  }, [focused]);
+  }, [focused, preview]);
 
   const pan = Gesture.Pan()
     .activeOffsetX([-5, 5])
     .onBegin(() => {
       runOnJS(setPagerSwipe)(false);
-      // Hand the card over to the finger mid-turn, from exactly where it is.
       cancelAnimation(rotY);
       start.value = rotY.value;
     })
@@ -111,8 +150,6 @@ export function TibCard3D({ member }: { member: Member }) {
       });
       rotX.value = withSpring(0, { damping: 12, stiffness: 90 });
     })
-    // Fires for every ending, including cancellations — the only safe place to
-    // give the pager back.
     .onFinalize(() => {
       runOnJS(setPagerSwipe)(true);
     });
@@ -122,8 +159,6 @@ export function TibCard3D({ member }: { member: Member }) {
    * so the highlight travels the way the card is actually turning.
    */
   const tilt = useDerivedValue(() => Math.abs(Math.sin((rotY.value * Math.PI) / 180)));
-  /** How wide the card reads from here — 1 face on, 0 edge on. */
-  const facing = useDerivedValue(() => Math.abs(Math.cos((rotY.value * Math.PI) / 180)));
   const shift = useDerivedValue(() => Math.sin((rotY.value * Math.PI) / 180));
   // The back face sits 180° round, so its light comes from the other side.
   const backShift = useDerivedValue(() => -shift.value);
@@ -144,148 +179,289 @@ export function TibCard3D({ member }: { member: Member }) {
     ],
   }));
 
-  // A shadow is cast by the card's silhouette, so it narrows as the card turns
-  // away. Leaving it a fixed ellipse is what makes 3D cards read as a flat
-  // image with a sticker under it.
-  const puckStyle = useAnimatedStyle(() => ({
-    transform: [{ scaleX: 0.4 + facing.value * 0.6 }],
-    opacity: 0.3 + facing.value * 0.3,
-  }));
+  const face = { width: cardW, height: cardH, borderRadius: px(24) };
+  const cardNo = `NO.${member.code}`;
+  const signature = member.signature ?? 'ilya';
+  const art = SIGNATURE_ART[signature] ?? SIGNATURE_ART.ilya;
+  const placement = SIGNATURE_PLACEMENT[signature] ?? SIGNATURE_PLACEMENT.ilya;
 
   return (
     <GestureDetector gesture={pan}>
-      <View style={styles.stage}>
-        {/* soft shadow puck */}
-        <Animated.View style={[styles.shadowPuck, puckStyle]} />
-
+      <View style={[styles.stage, { width: cardW, height: cardH }]}>
         {/* FRONT */}
-        <Animated.View style={[styles.face, styles.front, frontStyle]}>
-          <View style={styles.faceInner}>
-            <View style={styles.rowBetween}>
-              <T variant="label" color="rgba(255,255,255,0.6)">
-                TIB_ID
-              </T>
-              <TibLogo size={22} color="#fff" />
+        <Animated.View style={[styles.face, face, { backgroundColor: RED }, frontStyle]}>
+          <View style={[StyleSheet.absoluteFill, { borderRadius: px(24), overflow: 'hidden' }]}>
+            <Signature
+              xml={art.front}
+              placement={placement}
+              px={px}
+              opacity={SIGNATURE_FRONT_OPACITY}
+            />
+
+            <Micro px={px} color="#fff" left={40} top={30}>
+              TIB IDENTIFICATION CARD
+            </Micro>
+            <Micro px={px} color="#fff" left={40} top={49}>
+              {cardNo}
+            </Micro>
+
+            <Portrait px={px} uri={member.photoUrl} />
+
+            <View style={{ position: 'absolute', left: px(40), top: px(416) }}>
+              <SvgXml xml={ART_BARCODE} width={px(262)} height={px(124.47)} style={BARCODE_FLIP} />
             </View>
 
-            <View style={{ flex: 1, justifyContent: 'center' }}>
-              <T variant="h1" color="#fff" style={{ fontSize: 34, letterSpacing: -1.2 }}>
-                {member.name}
-              </T>
-              <T variant="body" color="rgba(255,255,255,0.7)">
-                {member.role}
-              </T>
+            <View style={{ position: 'absolute', left: px(800.56), top: px(73) }}>
+              <TibLogo size={px(59.41)} color="#fff" />
             </View>
 
-            <View style={styles.rowBetween}>
-              <T variant="title" color="#fff" style={{ letterSpacing: 2 }}>
-                {member.code}
-              </T>
-              <View style={[styles.chipDot, { backgroundColor: member.color }]} />
-            </View>
+            <Field px={px} top={73} label="first name:" value={member.firstName} />
+            <Field px={px} top={170} label="last name:" value={member.lastName} />
+            {/* The design sets two separate lines, not one wrapping string. */}
+            <Field
+              px={px}
+              top={267}
+              label="position:"
+              value={member.role}
+              value2={member.roleSecondary}
+            />
+            <Field px={px} top={415} label="number:" value={member.phone} />
+
+            <Micro px={px} color="#fff" left={376} top={502}>
+              THE MANUFACTURE OF THIS CARD IS PROHIBITED
+            </Micro>
+            <Micro px={px} color="#fff" left={701} top={502}>
+              DATE OF EXPIRE: TILL I DIE
+            </Micro>
+            <Micro px={px} color="#fff" left={376} top={526}>
+              DATE OF ISSUE: NEVERMIND
+            </Micro>
+            <Micro px={px} color="#fff" left={617} top={526}>
+              THE HOLDER OF THIS CARD IS A LEGEND
+            </Micro>
           </View>
 
           {/* Film goes over the print, the way a real one is applied */}
-          <Laminate
+          {preview ? null : <Laminate
             id="front"
             tint="onRed"
-            width={CARD_W}
-            height={CARD_H}
-            radius={radius.lg}
+            width={cardW}
+            height={cardH}
+            radius={px(24)}
             tilt={tilt}
             shift={shift}
-          />
+          />}
         </Animated.View>
 
         {/* BACK */}
-        <Animated.View style={[styles.face, styles.back, backStyle]}>
-          <View style={styles.faceInner}>
-            <View style={styles.magstripe} />
-            <View
-              style={{
-                flex: 1,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <TibLogo size={64} color="#000" />
+        <Animated.View style={[styles.face, face, { backgroundColor: PAPER }, backStyle]}>
+          <View style={[StyleSheet.absoluteFill, { borderRadius: px(24), overflow: 'hidden' }]}>
+            <Signature
+              xml={art.back}
+              placement={placement}
+              px={px}
+              opacity={SIGNATURE_BACK_OPACITY}
+            />
+
+            <Micro px={px} color="#000" left={40} top={30}>
+              TIB IDENTIFICATION CARD
+            </Micro>
+            <Micro px={px} color="#000" left={40} top={49}>
+              {cardNo}
+            </Micro>
+
+            <View style={{ position: 'absolute', left: px(816), top: px(30) }}>
+              <TibLogo size={px(44)} color="#000" />
             </View>
-            <View style={styles.rowBetween}>
-              <T variant="label" color="rgba(0,0,0,0.5)">
-                This is beyond
-              </T>
-              <T variant="label" color="rgba(0,0,0,0.5)">
-                {member.code}
-              </T>
-            </View>
+
+            <Micro px={px} color="#000" left={40} top={526} uppercase>
+              {member.website}
+            </Micro>
+            {/* Both of these are flush to the same right margin as the design */}
+            <Micro px={px} color="#000" right={40} top={507} uppercase>
+              {member.handle}
+            </Micro>
+            <Micro px={px} color="#000" right={40} top={526} uppercase>
+              {member.phone}
+            </Micro>
           </View>
 
-          <Laminate
+          {preview ? null : <Laminate
             id="back"
             tint="onPaper"
-            width={CARD_W}
-            height={CARD_H}
-            radius={radius.lg}
+            width={cardW}
+            height={cardH}
+            radius={px(24)}
             tilt={tilt}
             shift={backShift}
-          />
+          />}
         </Animated.View>
       </View>
     </GestureDetector>
   );
 }
 
+type Px = (n: number) => number;
+
+/**
+ * A signature mark.
+ *
+ * Figma reserves a box for it — usually larger than the card, since these run
+ * off the edges — and centres the vector inside, turned. The vector itself is
+ * exported untransformed, so the rotation and mirror are re-applied here; skip
+ * them and every mark lands upside down.
+ */
+function Signature({
+  xml,
+  placement,
+  px,
+  opacity,
+}: {
+  xml: string;
+  placement: ArtPlacement;
+  px: Px;
+  opacity: number;
+}) {
+  const { box, art, rotate, flipX } = placement;
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: px(box.left),
+        top: px(box.top),
+        width: px(box.width),
+        height: px(box.height),
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity,
+      }}
+    >
+      <View style={{ transform: [{ rotate: `${rotate}deg` }, { scaleX: flipX ? -1 : 1 }] }}>
+        <SvgXml xml={xml} width={px(art.width)} height={px(art.height)} />
+      </View>
+    </View>
+  );
+}
+
+function Portrait({ px, uri }: { px: Px; uri?: string }) {
+  const w = px(262);
+  const h = px(333);
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        left: px(40),
+        top: px(73),
+        width: w,
+        height: h,
+        // Clip, always: a portrait that fails to size would otherwise paint
+        // over the whole card at its natural resolution.
+        overflow: 'hidden',
+      }}
+    >
+      {/*
+        Explicit width/height, not absolute inset-0. An Image whose style does
+        not state a size falls back to the asset's own dimensions — on web it
+        lays out at the file's full 960 × 1280 and spills across the card.
+      */}
+      <Image source={uri ? { uri } : PORTRAIT} style={{ width: w, height: h }} resizeMode="cover" />
+    </View>
+  );
+}
+
+/** A labelled value: small caption, then the value in 40px bold caps. */
+function Field({
+  px,
+  top,
+  label,
+  value,
+  value2,
+}: {
+  px: Px;
+  top: number;
+  label: string;
+  value: string;
+  /** Second line, placed at the design's own offset rather than by wrapping. */
+  value2?: string;
+}) {
+  const valueStyle = {
+    position: 'absolute' as const,
+    left: px(376),
+    width: px(484),
+    fontFamily: fonts.black,
+    fontSize: px(40),
+    lineHeight: px(46),
+    fontWeight: '700' as const,
+    color: '#fff',
+    textTransform: 'uppercase' as const,
+  };
+  return (
+    <>
+      <Text
+        style={{
+          position: 'absolute',
+          left: px(376),
+          top: px(top),
+          fontFamily: fonts.body,
+          fontSize: px(16),
+          lineHeight: px(18),
+          color: '#fff',
+        }}
+      >
+        {label}
+      </Text>
+      <Text numberOfLines={1} style={[valueStyle, { top: px(top + 23) }]}>
+        {value}
+      </Text>
+      {value2 ? (
+        <Text numberOfLines={1} style={[valueStyle, { top: px(top + 74) }]}>
+          {value2}
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
+/** The 12px print: legend lines, card number, contacts. */
+function Micro({
+  px,
+  left,
+  right,
+  top,
+  color,
+  uppercase,
+  children,
+}: {
+  px: Px;
+  left?: number;
+  right?: number;
+  top: number;
+  color: string;
+  uppercase?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Text
+      numberOfLines={1}
+      style={{
+        position: 'absolute',
+        left: left === undefined ? undefined : px(left),
+        right: right === undefined ? undefined : px(right),
+        top: px(top),
+        fontFamily: fonts.body,
+        fontSize: px(12),
+        lineHeight: px(14),
+        color,
+        textTransform: uppercase ? 'uppercase' : 'none',
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
 const styles = StyleSheet.create({
-  stage: {
-    width: CARD_W,
-    height: CARD_H + 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-  },
-  shadowPuck: {
-    position: 'absolute',
-    bottom: 6,
-    width: CARD_W * 0.7,
-    height: 22,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,0,68,0.35)',
-  },
-  face: {
-    position: 'absolute',
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: radius.lg,
-    backfaceVisibility: 'hidden',
-  },
-  // Padding lives here, not on the face: an absolutely positioned film must
-  // cover the whole card, and `overflow: hidden` on a 3D-transformed view is
-  // unreliable on Android — the film clips itself instead.
-  faceInner: { flex: 1, padding: 20 },
-  front: {
-    backgroundColor: colors.red,
-  },
-  back: {
-    backgroundColor: colors.paper,
-  },
-  rowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  chipDot: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.5)',
-  },
-  magstripe: {
-    position: 'absolute',
-    top: 22,
-    left: 0,
-    right: 0,
-    height: 40,
-    backgroundColor: '#000',
-  },
+  stage: { alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+  face: { position: 'absolute', backfaceVisibility: 'hidden' },
 });

@@ -2,6 +2,7 @@ import React from 'react';
 import { ScrollView, StyleProp, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, space } from '../theme';
+import { ARC_HEIGHT } from './ArcTabs';
 
 /*
  * No focus entrance here on purpose. Tab screens now live in a swipe pager:
@@ -10,26 +11,32 @@ import { colors, space } from '../theme';
  * a flicker right as the swipe settles. The pager owns the transition.
  */
 
-/** Standard scrollable screen with safe-area top + room for the floating tab bar. */
+/** Standard scrollable screen: clears the arc rail on top, safe area below. */
 export function Screen({
   children,
   scroll = true,
   contentStyle,
-  tabBarSpace = true,
+  fab,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
-  tabBarSpace?: boolean;
+  /** Rendered outside the scroll area, so it stays put while the page moves. */
+  fab?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
-  const paddingTop = insets.top + space.sm;
-  const paddingBottom = (tabBarSpace ? 96 : space.lg) + insets.bottom;
+  // Content starts below the label wheel, which floats over every page.
+  const paddingTop = insets.top + ARC_HEIGHT + space.sm;
+  // Room for the button, so the last row is never parked underneath it.
+  const paddingBottom = (fab ? 104 : space.xl) + insets.bottom;
 
   if (!scroll) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <View style={[{ flex: 1, paddingTop, paddingHorizontal: space.xl }, contentStyle]}>{children}</View>
+        <View style={[{ flex: 1, paddingTop, paddingHorizontal: space.xl }, contentStyle]}>
+          {children}
+        </View>
+        {fab}
       </View>
     );
   }
@@ -43,6 +50,7 @@ export function Screen({
       >
         {children}
       </ScrollView>
+      {fab}
     </View>
   );
 }

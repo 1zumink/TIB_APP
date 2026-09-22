@@ -1,14 +1,27 @@
 import { Deadline, EventItem, LogEntry, Member, Task, WorkHour } from '../types';
+import { splitName } from '../lib/member';
 
 /** Map Supabase rows (snake_case) to app types (camelCase). */
 
-export const fromProfile = (r: any): Member => ({
-  id: r.id,
-  name: r.name,
-  role: r.role,
-  code: r.code,
-  color: r.color,
-});
+export const fromProfile = (r: any): Member => {
+  // Rows written before the card fields existed only have `name`.
+  const legacy = splitName(r.name ?? '');
+  return {
+    id: r.id,
+    name: r.name ?? '',
+    firstName: r.first_name || legacy.firstName,
+    lastName: r.last_name || legacy.lastName,
+    role: r.role ?? '',
+    roleSecondary: r.role_secondary ?? '',
+    code: r.code ?? '',
+    color: r.color ?? '#FF0044',
+    phone: r.phone ?? '',
+    website: r.website ?? '',
+    handle: r.handle ?? '',
+    photoUrl: r.photo_url || undefined,
+    signature: (r.signature as Member['signature']) || 'ilya',
+  };
+};
 
 export const fromDeadline = (r: any): Deadline => ({
   id: r.id,

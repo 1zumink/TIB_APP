@@ -7,6 +7,7 @@ import {
   timing,
 } from './motion';
 import React, { useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ActivityIndicator,
   StyleProp,
@@ -214,6 +215,32 @@ export function IconButton({
   );
 }
 
+/**
+ * Floating action button, bottom right.
+ *
+ * Sits above the page rather than in a header, so the reach stays in the
+ * thumb's arc and the top of the screen is left to the content.
+ */
+export function Fab({
+  icon = 'add',
+  onPress,
+}: {
+  icon?: keyof typeof Ionicons.glyphMap;
+  onPress?: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.fab, { bottom: insets.bottom + space.xl }]} pointerEvents="box-none">
+      {/* The wrapper carries the button's own shape and fill: Android casts
+          elevation from the view's background, and a transparent one throws
+          no shadow at all. */}
+      <View style={[shadow.red, { borderRadius: 29, backgroundColor: colors.red }]}>
+        <IconButton icon={icon} tone="red" size={58} haptic="tap" onPress={onPress} />
+      </View>
+    </View>
+  );
+}
+
 /* ---------- Avatar ---------- */
 export function Avatar({ member, size = 40 }: { member?: Member; size?: number }) {
   const initials = member ? member.name.slice(0, 1).toUpperCase() : '?';
@@ -332,6 +359,7 @@ const styles = StyleSheet.create({
   },
   buttonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   buttonText: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
+  fab: { position: 'absolute', right: space.xl, zIndex: 20 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',

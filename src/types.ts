@@ -1,14 +1,58 @@
+import type { SignatureKey } from './components/cardArt';
+
 export type ID = string;
 
 export interface Member {
   id: ID;
+  /**
+   * Display name used by lists, avatars and the log. Always kept in sync with
+   * firstName + lastName — see composeName.
+   */
   name: string;
+  /** printed on the card front under "first name:" */
+  firstName: string;
+  /** printed on the card front under "last name:" */
+  lastName: string;
+  /** position, first line — printed on the card front under "position:" */
   role: string;
-  /** short code shown on the TIB_ID card, e.g. "TIB-004" */
+  /** position, second line — the design prints two, as separate lines */
+  roleSecondary: string;
+  /** card number, printed as "NO.<code>" on both faces */
   code: string;
   /** accent color for avatar */
   color: string;
+  /** printed on the card front under "number:", and again on the back */
+  phone: string;
+  /** personal site, printed bottom-left on the back */
+  website: string;
+  /** @handle, printed bottom-right on the back */
+  handle: string;
+  /** portrait for the card front; the bundled placeholder is used when empty */
+  photoUrl?: string;
+  /** whose mark is printed across the card */
+  signature: SignatureKey;
 }
+
+/**
+ * The editable half of a profile. `name` is absent on purpose — it is always
+ * recomposed from firstName + lastName so the two can never disagree.
+ */
+export type ProfilePatch = Partial<
+  Pick<
+    Member,
+    | 'firstName'
+    | 'lastName'
+    | 'role'
+    | 'roleSecondary'
+    | 'code'
+    | 'color'
+    | 'phone'
+    | 'website'
+    | 'handle'
+    | 'photoUrl'
+    | 'signature'
+  >
+>;
 
 export type DeadlineStatus = 'active' | 'done';
 

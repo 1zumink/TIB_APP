@@ -11,11 +11,36 @@ create sequence if not exists tib_code_seq start 1;
 create table if not exists public.profiles (
   id         uuid primary key references auth.users(id) on delete cascade,
   name       text not null,
+  first_name text not null default '',
+  last_name  text not null default '',
   role       text not null default 'Designer',
+  role_secondary text not null default '',
   code       text not null default ('TIB-' || lpad(nextval('tib_code_seq')::text, 3, '0')),
   color      text not null default '#FF0044',
+  phone      text not null default '',
+  website    text not null default '',
+  handle     text not null default '',
+  photo_url  text,
+  signature  text not null default 'ilya',
   created_at timestamptz not null default now()
 );
+
+-- Карточка TIB_ID: поля, добавленные после первой версии схемы.
+-- Отдельными ALTER, чтобы прогон на уже существующей базе ничего не сломал.
+alter table public.profiles add column if not exists first_name text not null default '';
+alter table public.profiles add column if not exists last_name  text not null default '';
+alter table public.profiles add column if not exists role_secondary text not null default '';
+alter table public.profiles add column if not exists phone      text not null default '';
+alter table public.profiles add column if not exists website    text not null default '';
+alter table public.profiles add column if not exists handle     text not null default '';
+alter table public.profiles add column if not exists photo_url  text;
+alter table public.profiles add column if not exists signature  text not null default 'ilya';
+
+-- Разложить уже записанные имена на имя и фамилию (только там, где пусто).
+update public.profiles
+   set first_name = split_part(name, ' ', 1),
+       last_name  = coalesce(trim(substr(name, length(split_part(name, ' ', 1)) + 1)), '')
+ where first_name = '' and name is not null and name <> '';
 
 -- ---------- Дедлайны ----------
 create table if not exists public.deadlines (

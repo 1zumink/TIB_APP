@@ -9,7 +9,7 @@ import {
   timing,
 } from './motion';
 import React, { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, TextInput, TextInputProps, View } from 'react-native';
 import Animated, {
   interpolateColor,
   useAnimatedStyle,
@@ -79,6 +79,8 @@ export function Field({
   placeholder,
   multiline,
   autoFocus,
+  keyboardType,
+  autoCapitalize,
 }: {
   label: string;
   value: string;
@@ -86,6 +88,8 @@ export function Field({
   placeholder?: string;
   multiline?: boolean;
   autoFocus?: boolean;
+  keyboardType?: TextInputProps['keyboardType'];
+  autoCapitalize?: TextInputProps['autoCapitalize'];
 }) {
   const focus = useSharedValue(0);
   const border = useAnimatedStyle(() => ({
@@ -104,6 +108,8 @@ export function Field({
         placeholderTextColor={colors.textFaint}
         multiline={multiline}
         autoFocus={autoFocus}
+        keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
         onFocus={() => {
           focus.value = timing(1, duration.chip);
         }}

@@ -19,7 +19,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
-import { AvatarStack, Button, IconButton, T, Tag } from '@/components/ui';
+import { AvatarStack, Button, Fab, T, Tag } from '@/components/ui';
 import { Sheet, useLastValue } from '@/components/Sheet';
 import { ChipSelect, DateField, Field } from '@/components/form';
 import { useStore } from '@/store/StoreContext';
@@ -41,15 +41,7 @@ export default function Events() {
   );
 
   return (
-    <Screen>
-      <View style={styles.head}>
-        <View>
-          <T variant="label">Куда идём вместе</T>
-          <T variant="display">Ивенты</T>
-        </View>
-        <IconButton icon="add" tone="red" size={52} onPress={() => setForm('new')} />
-      </View>
-
+    <Screen fab={<Fab onPress={() => setForm('new')} />}>
       {list.map((e, idx) => {
         const going = e.going.map((id) => memberById(id)!).filter(Boolean);
         const iGo = e.going.includes(me.id);
@@ -200,7 +192,6 @@ function EventFormSheet({
 }
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: space.md },
   card: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: space.lg, marginBottom: space.sm },
   cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, flexWrap: 'wrap' },

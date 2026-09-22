@@ -11,7 +11,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
-import { Avatar, Button, IconButton, Pill, T, Tag } from '@/components/ui';
+import { Avatar, Button, Fab, Pill, T, Tag } from '@/components/ui';
 import { Sheet, useLastValue } from '@/components/Sheet';
 import { DateField, Field, MemberSelect } from '@/components/form';
 import { useStore } from '@/store/StoreContext';
@@ -40,15 +40,7 @@ export default function Deadlines() {
   }, [data.deadlines, filter, me.id]);
 
   return (
-    <Screen>
-      <View style={styles.head}>
-        <View>
-          <T variant="label">Общая таблица</T>
-          <T variant="display">Дедлайны</T>
-        </View>
-        <IconButton icon="add" tone="red" size={52} onPress={() => setEditing('new')} />
-      </View>
-
+    <Screen fab={<Fab onPress={() => setEditing('new')} />}>
       <View style={styles.filters}>
         <Pill label="Активные" active={filter === 'active'} onPress={() => setFilter('active')} />
         <Pill label="Все" active={filter === 'all'} onPress={() => setFilter('all')} />
@@ -188,7 +180,6 @@ function DeadlineSheet({
 }
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: space.md },
   filters: { flexDirection: 'row', gap: 8, marginBottom: space.md, flexWrap: 'wrap' },
   card: {
     flexDirection: 'row',

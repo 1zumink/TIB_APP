@@ -10,11 +10,11 @@ function rel(days: number): string {
 export const SEED: AppData = {
   currentUserId: 'm1',
   members: [
-    { id: 'm1', name: 'Илья', role: 'Founder / Art Director', code: 'TIB-001', color: '#FF0044' },
-    { id: 'm2', name: 'Тарас', role: 'Product Designer', code: 'TIB-002', color: '#4C6FFF' },
-    { id: 'm3', name: 'Боря', role: 'Motion Designer', code: 'TIB-003', color: '#12B76A' },
-    { id: 'm4', name: 'Матвей', role: 'Illustrator', code: 'TIB-004', color: '#F79009' },
-    { id: 'm5', name: 'Лёха', role: 'UX / Research', code: 'TIB-005', color: '#9E77ED' },
+    { id: 'm1', name: 'Илья Ланг', firstName: 'Илья', lastName: 'Ланг', role: 'Art-Director', roleSecondary: 'Product Designer', code: '148867694252', color: '#FF0044', phone: '+7 (916) 611-47-35', website: 'iloveilyalang.com', handle: '@kkklounada', signature: 'ilya' },
+    { id: 'm2', name: 'Тарас', firstName: 'Тарас', lastName: '', role: 'Product Designer', roleSecondary: '', code: 'TIB-002', color: '#4C6FFF', phone: '', website: '', handle: '', signature: 'ilya' },
+    { id: 'm3', name: 'Боря', firstName: 'Боря', lastName: '', role: 'Motion Designer', roleSecondary: '', code: 'TIB-003', color: '#12B76A', phone: '', website: '', handle: '', signature: 'ilya' },
+    { id: 'm4', name: 'Матвей', firstName: 'Матвей', lastName: '', role: 'Illustrator', roleSecondary: '', code: 'TIB-004', color: '#F79009', phone: '', website: '', handle: '', signature: 'ilya' },
+    { id: 'm5', name: 'Лёха', firstName: 'Лёха', lastName: '', role: 'UX / Research', roleSecondary: '', code: 'TIB-005', color: '#9E77ED', phone: '', website: '', handle: '', signature: 'ilya' },
   ],
   deadlines: [
     { id: 'd1', title: 'Финальный кейс для Behance', project: 'Portfolio', date: rel(2), ownerId: 'm1', status: 'active', createdAt: Date.now() },

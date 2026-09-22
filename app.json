@@ -29,16 +29,25 @@
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "bundler": "metro"
+      "bundler": "metro",
+      "output": "static"
     },
     "plugins": [
       "expo-router",
       "expo-status-bar",
       "expo-sharing",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TIB нужен доступ к галерее, чтобы поставить фото на карточку.",
+          "cameraPermission": "TIB нужен доступ к камере, чтобы снять фото для карточки."
+        }
+      ]
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "baseUrl": "/TIB_APP"
     }
   }
 }

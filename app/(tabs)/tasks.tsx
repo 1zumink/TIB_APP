@@ -13,7 +13,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
-import { Avatar, Button, IconButton, Pill, T, Tag } from '@/components/ui';
+import { Avatar, Button, Fab, Pill, T, Tag } from '@/components/ui';
 import { Sheet, useLastValue } from '@/components/Sheet';
 import { DateField, Field } from '@/components/form';
 import { useStore } from '@/store/StoreContext';
@@ -41,15 +41,7 @@ export default function Tasks() {
   }, [data.tasks, filter, me.id]);
 
   return (
-    <Screen>
-      <View style={styles.head}>
-        <View>
-          <T variant="label">Кто-то один справится</T>
-          <T variant="display">Таски</T>
-        </View>
-        <IconButton icon="add" tone="red" size={52} onPress={() => setForm('new')} />
-      </View>
-
+    <Screen fab={<Fab onPress={() => setForm('new')} />}>
       <View style={styles.filters}>
         <Pill label="Открытые" active={filter === 'open'} onPress={() => setFilter('open')} />
         <Pill label="Мои" active={filter === 'mine'} onPress={() => setFilter('mine')} />
@@ -287,7 +279,6 @@ function TaskDetailSheet({
 }
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: space.md },
   filters: { flexDirection: 'row', gap: 8, marginBottom: space.md, flexWrap: 'wrap' },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.md, marginBottom: space.sm },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },

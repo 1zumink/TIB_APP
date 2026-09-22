@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppData, Deadline, EventItem, ID, LogEntry, Member, Task, WorkHour } from '../types';
+import { AppData, Deadline, EventItem, ID, LogEntry, Member, ProfilePatch, Task, WorkHour } from '../types';
 import { SEED } from './seed';
+import { composeName } from '../lib/member';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useSupabaseStore } from './useSupabaseStore';
 
@@ -26,7 +27,7 @@ export interface StoreContextValue {
   signIn?: (email: string, password: string) => Promise<{ error?: string }>;
   signUp?: (email: string, password: string, name: string) => Promise<{ error?: string }>;
   signOut?: () => Promise<void>;
-  updateProfile: (patch: Partial<Pick<Member, 'name' | 'role' | 'color'>>) => void;
+  updateProfile: (patch: ProfilePatch) => void;
 
   // deadlines
   addDeadline: (input: Omit<Deadline, 'id' | 'createdAt' | 'status'>) => void;
@@ -106,7 +107,12 @@ function useLocalStore(): StoreContextValue {
       updateProfile: (patch) =>
         setData((d) => ({
           ...d,
-          members: d.members.map((m) => (m.id === d.currentUserId ? { ...m, ...patch } : m)),
+          members: d.members.map((m) => {
+            if (m.id !== d.currentUserId) return m;
+            const next = { ...m, ...patch };
+            // Recompose rather than trust a passed-in name: the two must not drift.
+            return { ...next, name: composeName(next.firstName, next.lastName, m.name) };
+          }),
         })),
       setCurrentUser: (id) => setData((d) => ({ ...d, currentUserId: id })),
 

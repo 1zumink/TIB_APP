@@ -6,21 +6,30 @@ import {
   duration,
   useSelectProgress,
 } from '@/components/motion';
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
-import { Avatar, T } from '@/components/ui';
+import { Avatar, IconButton, T } from '@/components/ui';
 import { TibCard3D } from '@/components/TibCard3D';
+import { ProfileSheet } from '@/components/ProfileSheet';
 import { useStore } from '@/store/StoreContext';
 import { confirm } from '@/lib/confirm';
 import { colors, radius, space, type } from '@/theme';
 
 export default function Profile() {
   const router = useRouter();
-  const { me, data, mode, setCurrentUser, resetAll, signOut } = useStore();
+  const { me, data, mode, setCurrentUser, resetAll, signOut, updateProfile } = useStore();
+  const [editing, setEditing] = useState(false);
+  // Bumped on open so the form re-reads the profile; keying on `editing` would
+  // remount the sheet as it closes and swallow its exit animation.
+  const [editSeq, setEditSeq] = useState(0);
+  const openEditor = () => {
+    setEditSeq((n) => n + 1);
+    setEditing(true);
+  };
 
   const myDeadlines = data.deadlines.filter((d) => d.ownerId === me.id && d.status === 'active').length;
   const myTasks = data.tasks.filter((t) => t.assigneeId === me.id && t.status !== 'done').length;
@@ -29,13 +38,13 @@ export default function Profile() {
   return (
     <Screen>
       <View style={styles.head}>
-        <View>
-          <T variant="label">Профиль</T>
+        <View style={{ flex: 1 }}>
           <T variant="display">{me.name}</T>
           <T variant="body" color={colors.textDim} style={{ marginTop: 2 }}>
-            {me.role}
+            {[me.role, me.roleSecondary].filter(Boolean).join(' · ')}
           </T>
         </View>
+        <IconButton icon="create-outline" tone="surface" onPress={openEditor} />
       </View>
 
       {/* 3D card */}
@@ -125,6 +134,17 @@ export default function Profile() {
           </T>
         </Pressable>
       )}
+      {/* The card above is the preview; this is the form behind it. */}
+      <ProfileSheet
+        key={editSeq}
+        visible={editing}
+        member={me}
+        onClose={() => setEditing(false)}
+        onSave={(patch) => {
+          updateProfile(patch);
+          setEditing(false);
+        }}
+      />
     </Screen>
   );
 }
@@ -193,7 +213,7 @@ function NavRow({
 }
 
 const styles = StyleSheet.create({
-  head: { marginBottom: space.lg },
+  head: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginBottom: space.lg },
   cardStage: { alignItems: 'center', paddingVertical: space.lg },
   hint: { flexDirection: 'row', alignItems: 'center', marginTop: space.md },
   stats: {
